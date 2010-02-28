@@ -1,0 +1,20 @@
+%html
+  %head
+    %title
+  %body
+    #content
+      %ul.list#menu
+        %li
+          %a href="http://localhost"
+            Link to something {{ a }}
+        %li
+          %img#dhdh src="http://localhost/{{ c }}.png"
+    %p
+      Some text, more text. pSome text, more text.
+      Some text, more text. pSome text, more text.
+      Some text, more text. pSome text, more text.
+      Some text, more text. pSome text, more text.
+    .last.else#footer
+
+
+// vim: set ai sw=2 ts=2 sta et
