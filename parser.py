@@ -363,11 +363,21 @@ class Parser(object):
                           ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
 
     def _get_textnode(self, line):
+        expr_list = []
         for match in self._text_inline_python.finditer(line):
-            print line, match.groups()[0]
+            #print line, match.groups()[0]
             value = match.groups()[0][2:-2].strip()
-            expr = ast.parse(value).body[0]
-            print ast.dump(expr)
+            length = match.end() - match.start()
+            line = line.replace(match.groups()[0], '%s', 1)
+            expr = ast.parse(value).body[0].value
+            expr_list.append(expr)
+        if expr_list:
+            print expr_list, line
+            return self.ast.BinOp(
+                    left=self.ast.Str(line),
+                    op=self.ast.Mod(),
+                    right=self.ast.Tuple(elts=expr_list, ctx=ast.Load())
+                )
         return self.ast.Str(line)
 
 
@@ -378,11 +388,17 @@ if __name__ == '__main__':
     parser = Parser()
     parser.parse(input)
     tree = parser.tree
+    data = {
+        'a':'THIS IS A',
+        'b':False,
+        'c':'THIS IS C',
+    }
     ns = {
         'Context':Context,
         'Tag':Tag,
         'TextNode':TextNode,
     }
+    ns.update(data)
     #print ast.dump(tree)
     exec compile(tree, '<string>', 'exec') in ns
     ns['_ctx'].render(stdout)
