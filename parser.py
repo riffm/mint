@@ -68,7 +68,7 @@ class TextNode(Node):
 
     def render(self, out, indent=0):
         out.write('  '*indent)
-        out.write('%s\n' % self.text)
+        out.write('%s\n' % self.escape(self.text))
 
 
 class AstWrap(object):
@@ -372,7 +372,7 @@ class Parser(object):
             expr = ast.parse(value).body[0].value
             expr_list.append(expr)
         if expr_list:
-            print expr_list, line
+            #print expr_list, line
             return self.ast.BinOp(
                     left=self.ast.Str(line),
                     op=self.ast.Mod(),
@@ -389,7 +389,7 @@ if __name__ == '__main__':
     parser.parse(input)
     tree = parser.tree
     data = {
-        'a':'THIS IS A',
+        'a':'THIS IS A<`^$#&',
         'b':False,
         'c':'THIS IS C',
     }
@@ -397,6 +397,7 @@ if __name__ == '__main__':
         'Context':Context,
         'Tag':Tag,
         'TextNode':TextNode,
+        '__builtins__':__builtins__,
     }
     ns.update(data)
     #print ast.dump(tree)
