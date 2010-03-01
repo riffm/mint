@@ -6,14 +6,19 @@
       %ul.list#menu
         %li
           %a href="http://localhost"
-            Link to something {{ a }}
+            Link to something {{ a }}- {{b}}.
+            This is expression {{ a if b else c }}- {{b}}.
         %li
           %img#dhdh src="http://localhost/{{ c }}.png"
+    <%
+    #PYTHON CODE BLOCK
+    %>
     %p
       Some text, more text. pSome text, more text.
       Some text, more text. pSome text, more text.
       Some text, more text. pSome text, more text.
       Some text, more text. pSome text, more text.
+
     .last.else#footer
 
 

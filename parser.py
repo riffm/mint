@@ -5,6 +5,7 @@ import re
 import ast
 import functools
 import weakref
+import htmlentitydefs
 
 
 class TemplateError(Exception):
@@ -21,7 +22,15 @@ class Context(object):
             node.render(out)
 
 
-class Tag(object):
+class Node(object):
+
+    def escape(self, text):
+        for k, v in htmlentitydefs.entitydefs.items():
+            text = text.replace(v, '&%s;' % k)
+        return text
+
+
+class Tag(Node):
 
     _selfclosed = ['br', 'hr', 'img', 'meta']
 
@@ -51,7 +60,7 @@ class Tag(object):
         out.write('</%s>\n' % self.tag_name)
 
 
-class TextNode(object):
+class TextNode(Node):
 
     def __init__(self, text, parent):
         parent.nodes.append(self)
@@ -63,10 +72,10 @@ class TextNode(object):
 
 
 class AstWrap(object):
-    
+
     def __init__(self, owner):
         self.owner = weakref.proxy(owner)
-    
+
     def __getattr__(self, name):
         return functools.partial(getattr(ast, name),
                                  col_offset=0,
@@ -82,12 +91,21 @@ class AstWrap(object):
         else:
             raise RuntimeError('unknown ctx %r' % ctx)
         return self.Name(id=id, ctx=ctx)
-    
+
     def _call(self, fn, args=None, kwargs=None):
         if not args:
             args = []
         return self.Call(func=fn, args=args, keywords=[],
                          starargs=None, kwargs=kwargs)
+
+
+# Some usefull constants
+EXPR_TAG_START = '{{'
+EXPR_TAG_END = '}}'
+CODE_BLOCK_START = '<%'
+CODE_BLOCK_END = '%>'
+HTML_TAG_START = '%'
+COMMENT = '/'
 
 
 
@@ -164,11 +182,11 @@ class Parser(object):
             return
         elif line.startswith('%else'):
             return
-        elif line.startswith('<%'):
+        elif line.startswith(CODE_BLOCK_START):
             return
-        elif line.startswith('%>'):
+        elif line.startswith(CODE_BLOCK_END):
             return
-        elif line.startswith('%') or line.startswith('.') or line.startswith('#'):
+        elif line.startswith(HTML_TAG_START) or line.startswith('.') or line.startswith('#'):
             nodes = self.handle_tag(line)
         else:
             nodes = self.handle_text(line)
@@ -186,8 +204,8 @@ class Parser(object):
         return (len(line) - len(line.lstrip()))/self.indent
 
     _tag_re = re.compile(r'''
-                          ^%(?P<name>[a-zA-Z-#.]+)   # tag name
-                          ''', re.VERBOSE)
+                          ^%s(?P<name>[a-zA-Z-#.]+)   # tag name
+                          ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
     _div_re = re.compile(r'''
                           ^(?P<name>(\.|\#)[a-zA-Z-#.]+)   # div attrs
                           ''', re.VERBOSE)
@@ -295,6 +313,7 @@ class Parser(object):
         )
         return _function, _function_call
 
+
     def handle_text(self, line):
         #TODO: escape
 
@@ -309,6 +328,8 @@ class Parser(object):
 
         _func_name = '_text_%d' % self._id()
 
+        _text_node = self._get_textnode(line)
+
         _function = self.ast.FunctionDef(
             name=_func_name,
             args=self.ast.arguments(
@@ -321,7 +342,7 @@ class Parser(object):
                     value=self.ast._call(
                         self.ast._name('TextNode'),
                         args=[
-                            self.ast.Str(line),
+                            _text_node,
                             self.ast._name('parent')
                         ]
                     )
@@ -329,16 +350,25 @@ class Parser(object):
             ],
             decorator_list=[]
         )
-        #self._push(_function)
-        #self._push(
         _function_call = self.ast.Expr(
             value=self.ast._call(
                 self.ast.Name(id=_func_name, ctx=ast.Load()),
                 args=[parent]
             )
         )
-        #)
         return _function, _function_call
+
+    _text_inline_python = re.compile(r'''
+                          (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
+                          ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
+
+    def _get_textnode(self, line):
+        for match in self._text_inline_python.finditer(line):
+            print line, match.groups()[0]
+            value = match.groups()[0][2:-2].strip()
+            expr = ast.parse(value).body[0]
+            print ast.dump(expr)
+        return self.ast.Str(line)
 
 
 if __name__ == '__main__':
