@@ -5,13 +5,13 @@
     #content
       %ul.list#menu
         %li
-          %a href="http://localhost"
+          %a(href="http://localhost{{ c }}")
             Link to something {{ a }}-{{ bool(b)}}.
             This is expression {{ a if b else c }}- {{b}}.
         %li
-          %img#dhdh src="http://localhost/{{ c }}.png"
+          %img#dhdh( src="http://localhost/{{ c }}.png")
     <%
-    #PYTHON CODE BLOCK
+    /#PYTHON CODE BLOCK
     %>
     %p
       Some text, more text. pSome text, more text.
@@ -19,7 +19,7 @@
       Some text, more text. pSome text, more text.
       Some text, more text. pSome {{ c }}text, more text.
 
-    .last.else#footer
+    .last.else#footer (title="footer block") FOOTER
 
 
 // vim: set ai sw=2 ts=2 sta et

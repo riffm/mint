@@ -8,6 +8,13 @@ import weakref
 import htmlentitydefs
 
 
+#TODO
+# - Text escaping
+# - "IF-ELSE" statement
+# - "FOR" statement
+# - blocks (inheritance)
+# - python code blocks
+
 class TemplateError(Exception):
     pass
 
@@ -40,15 +47,24 @@ class Tag(Node):
         self.nodes = []
         self.attrs = []
         self.closed = tag_name in self._selfclosed
+        self.text_attr = ''
 
     def set_attr(self, name, value):
         self.attrs.append((name, value))
+
+    def add_text_attr(self, text):
+        self.text_attr += ' %s' % text
+
+    def add_text(self, text):
+        TextNode(text, self)
 
     def render(self, out, indent=0):
         out.write('  '*indent)
         out.write('<%s' % self.tag_name)
         for attr in self.attrs:
             out.write(' %s="%s" ' % attr)
+        if self.text_attr:
+            out.write(self.text_attr)
         if self.closed:
             out.write('/>\n')
             return
@@ -108,7 +124,6 @@ HTML_TAG_START = '%'
 COMMENT = '/'
 
 
-
 class Parser(object):
 
     def __init__(self, indent=2):
@@ -128,20 +143,14 @@ class Parser(object):
     def push_context(self, ctx):
         self.level += 1
         self.stack.append(self.ctx)
-        #print 'Pushing ctx', ctx
-        #print self.stack
         self.ctx = ctx
 
     def pop_context(self):
         self.level -= 1
         self.ctx = self.stack.pop()
-        #print 'Poping ctx', self.ctx
-        #print self.stack
 
     def _push(self, node):
         'Appending ast.Node to current ctx'
-        #print 'Appending ', node
-        #print self.stack
         self.ctx.body.append(node)
 
     def _id(self):
@@ -157,13 +166,12 @@ class Parser(object):
             line = line.replace('\n', '')
             striped_line = line.strip()
             if striped_line and len(striped_line) > 1 \
-            and not striped_line.startswith('/'):
+            and not striped_line.startswith(COMMENT):
                 self.lineno +=1
                 self._process_line(line, i)
 
     def _process_line(self, line, line_number):
         level = self._get_level(line)
-        #assert level - self.level <= 1, 'Indention error,  line %d' % line_number
 
         # if line is upper level, we pop context
         if level < self.level:
@@ -204,8 +212,11 @@ class Parser(object):
         return (len(line) - len(line.lstrip()))/self.indent
 
     _tag_re = re.compile(r'''
-                          ^%s(?P<name>[a-zA-Z-#.]+)   # tag name
+                          ^%s(?P<name>[a-zA-Z-#._]+)   # tag name
                           ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
+    _tag_attrs_re = re.compile(r'''
+                          (%s.*?%s)   # tag attrs (title="some title" href="http://host")
+                          ''' % (re.escape('('), re.escape(')')), re.VERBOSE)
     _div_re = re.compile(r'''
                           ^(?P<name>(\.|\#)[a-zA-Z-#.]+)   # div attrs
                           ''', re.VERBOSE)
@@ -226,8 +237,20 @@ class Parser(object):
             classes = _classes.split('.')[1:]
         return classes, tag_id
 
+    def _parse_attrs(self, line):
+        '''
+        get attrs from string '(attr="value" attr1="value1") some text'
+        returns two strings 'attr="value" attr1="value1"' and 'some text'
+        '''
+        match = self._tag_attrs_re.search(line)
+        rest_line = ''
+        if match:
+            rest_line = line[match.end():].strip()
+            return match.groups()[0][1:-1].strip(), rest_line
+        return '', line.strip()
+
     def handle_tag(self, line):
-        data = ''
+        rest_line = line
         tag_name = 'div'
         tag_attrs = ''
         if self._tag_re.match(line):
@@ -241,12 +264,20 @@ class Parser(object):
                 tag_attrs = name[len(tag_name):]
             else:
                 tag_name = name
+            rest_line = line[len(tag_name)+len(tag_attrs)+1:]
         elif self._div_re.match(line):
             data = self._div_re.match(line).groupdict('name')
             tag_attrs = data['name']
+            rest_line = line[len(tag_attrs):]
         else:
             raise TemplateError('line %d: %s' % (self.lineno, line))
+        # get classes list and id
         classes, tag_id = self._get_tag_attrs(tag_attrs)
+
+        # Here we got tag name and optional classes of tag and id.
+        # Now we look at other attrs of tag
+        other_attrs, rest_line = self._parse_attrs(rest_line)
+        #print other_attrs, rest_line
 
         # if we are in function, parent name is - 'node', else 'None'
         if filter(lambda p: type(p) is ast.FunctionDef, self.stack + [self.ctx]):
@@ -259,6 +290,8 @@ class Parser(object):
 
         _func_name = '_tag_%d' % self._id()
 
+        # def _tag_NUM(parent):
+        #     node = Tag('....', parent)
         _function = self.ast.FunctionDef(
             name=_func_name,
             args=self.ast.arguments(
@@ -279,6 +312,7 @@ class Parser(object):
             ],
             decorator_list=[]
         )
+        # node.set_attr('class', '.....')
         if classes:
             _function.body.append(
                 self.ast.Expr(
@@ -292,6 +326,7 @@ class Parser(object):
                     )
                 )
             )
+        # node.set_attr('id', '....')
         if tag_id:
             _function.body.append(
                 self.ast.Expr(
@@ -305,6 +340,38 @@ class Parser(object):
                     )
                 )
             )
+        # node.add_text_attr('....')
+        if other_attrs:
+            _node = self._get_textnode(other_attrs)
+            _function.body.append(
+                self.ast.Expr(
+                    value = self.ast._call(
+                        self.ast.Attribute(
+                            value=self.ast._name('node'),
+                            attr='add_text_attr',
+                            ctx=ast.Load()
+                        ),
+                        args=[_node]
+                    )
+                )
+            )
+        # node.add_text('...')
+        if rest_line:
+            _node = self._get_textnode(rest_line)
+            _function.body.append(
+                self.ast.Expr(
+                    value = self.ast._call(
+                        self.ast.Attribute(
+                            value=self.ast._name('node'),
+                            attr='add_text',
+                            ctx=ast.Load()
+                        ),
+                        args=[_node]
+                    )
+                )
+            )
+
+        # _tag_NUMBER(parent)
         _function_call = self.ast.Expr(
             value=self.ast._call(
                 self.ast.Name(id=_func_name, ctx=ast.Load()),
@@ -313,11 +380,8 @@ class Parser(object):
         )
         return _function, _function_call
 
-
     def handle_text(self, line):
-        #TODO: escape
-
-        # if we are in function, parent name is - 'node', else 'None'
+        # if we are in function, parent name is - 'node', else '_ctx'
         if filter(lambda p: type(p) is ast.FunctionDef, self.stack + [self.ctx]):
             parent = 'node'
         else:
@@ -363,16 +427,19 @@ class Parser(object):
                           ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
 
     def _get_textnode(self, line):
+        '''
+        Returns ast with expr, finds inline code blocks and
+        replace them with result of code execution
+        '''
+        # list of parsed inline code blocks
         expr_list = []
         for match in self._text_inline_python.finditer(line):
-            #print line, match.groups()[0]
             value = match.groups()[0][2:-2].strip()
             length = match.end() - match.start()
             line = line.replace(match.groups()[0], '%s', 1)
             expr = ast.parse(value).body[0].value
             expr_list.append(expr)
         if expr_list:
-            #print expr_list, line
             return self.ast.BinOp(
                     left=self.ast.Str(line),
                     op=self.ast.Mod(),
@@ -382,8 +449,7 @@ class Parser(object):
 
 
 if __name__ == '__main__':
-    from sys import argv
-    from sys import stdout
+    from sys import argv, stdout
     input = open(argv[1], 'r')
     parser = Parser()
     parser.parse(input)
@@ -400,6 +466,5 @@ if __name__ == '__main__':
         '__builtins__':__builtins__,
     }
     ns.update(data)
-    #print ast.dump(tree)
     exec compile(tree, '<string>', 'exec') in ns
     ns['_ctx'].render(stdout)
