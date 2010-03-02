@@ -121,6 +121,7 @@ EXPR_TAG_END = '}}'
 CODE_BLOCK_START = '<%'
 CODE_BLOCK_END = '%>'
 HTML_TAG_START = '%'
+PYTHON_STATEMENT = '@'
 COMMENT = '/'
 
 
@@ -178,17 +179,17 @@ class Parser(object):
             for i in range(self.level - level):
                 self.pop_context()
 
-        line = line.lstrip()
+        line = line.strip()
         nodes = []
         if line.startswith('%block'):
             return
         if line.startswith('%endblock'):
             return
-        elif line.startswith('%for'):
+        elif line.startswith('@for'):
+            nodes = self.handle_for(line[1:])
+        elif line.startswith('@if'):
             return
-        elif line.startswith('%if'):
-            return
-        elif line.startswith('%else'):
+        elif line.startswith('@else'):
             return
         elif line.startswith(CODE_BLOCK_START):
             return
@@ -446,6 +447,15 @@ class Parser(object):
                     right=self.ast.Tuple(elts=expr_list, ctx=ast.Load())
                 )
         return self.ast.Str(line)
+
+    def handle_for(self, line):
+        if line[-1] != ':':
+            line += ': pass'
+        else:
+            line += ' pass'
+        _tree = ast.parse(line)
+        _tree.body[0].body = []
+        return [_tree.body[0]]
 
 
 if __name__ == '__main__':
