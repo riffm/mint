@@ -471,6 +471,40 @@ class Parser(object):
         self._associative_lines[self.lineno] = (self._current_line_number, old_line)
         return [_tree.body[0]]
 
+class PrintNodeVisitor(ast.NodeVisitor):
+    indent = '  '
+
+    def __init__(self):
+        self._lines = {}
+
+    def generic_visit(self, node):
+        self._lines.setdefault(node.lineno, []).append((type(node).__name__, node.col_offset))
+        super(PrintNodeVisitor, self).generic_visit(node)
+
+    def visit_Name(self, node):
+        self._lines.setdefault(node.lineno, []).append((node.id, node.col_offset))
+        super(PrintNodeVisitor, self).generic_visit(node)
+
+    def visit_Str(self, node):
+        self._lines.setdefault(node.lineno, []).append((node.s, node.col_offset))
+        super(PrintNodeVisitor, self).generic_visit(node)
+
+    def visit_FunctionDef(self, node):
+        self._lines.setdefault(node.lineno, []).append(('def %s'%node.name , node.col_offset))
+        super(PrintNodeVisitor, self).generic_visit(node)
+
+    def visit_Assign(self, node):
+        self._lines.setdefault(node.lineno, []).append((' = ', node.col_offset))
+        super(PrintNodeVisitor, self).generic_visit(node)
+
+    def visit_arguments(self, node):
+        self._lines.setdefault(node.lineno, []).append(('(%r)' % node.args, node.col_offset))
+        super(PrintNodeVisitor, self).generic_visit(node)
+
+    def visit_Load(self, node):pass
+    def visit_Store(self, node):pass
+    def visit_Param(self, node):pass
+
 
 if __name__ == '__main__':
     import sys
@@ -506,3 +540,8 @@ if __name__ == '__main__':
                                                  str(e)))
     ns['_ctx'].render(stdout)
     #print parser._associative_lines
+    printer = PrintNodeVisitor()
+    printer.visit(tree)
+    #for i in range(len(printer._lines)):
+        #if i in printer._lines:
+            #print i, ' '.join([' '*offset+n for n, offset in printer._lines[i]])
