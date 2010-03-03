@@ -9,9 +9,9 @@ import htmlentitydefs
 
 
 #TODO
-# - Text escaping
+# + Text escaping
 # - "IF-ELSE" statement
-# - "FOR" statement
+# + "FOR" statement
 # - blocks (inheritance)
 # - python code blocks
 
@@ -28,12 +28,17 @@ class Context(object):
         for node in self.nodes:
             node.render(out)
 
+UNSAFE_CHARS = '&<>"'
+CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
+UNSAFE_CHARS_ENTITIES = [(k, CHARS_ENTITIES[k]) for k in UNSAFE_CHARS]
+UNSAFE_CHARS_ENTITIES.append(("'",'&#39;'))
+
 
 class Node(object):
 
     def escape(self, text):
-        for k, v in htmlentitydefs.entitydefs.items():
-            text = text.replace(v, '&%s;' % k)
+        for k, v in UNSAFE_CHARS_ENTITIES:
+            text = text.replace(k, v)
         return text
 
 
@@ -136,10 +141,13 @@ class Parser(object):
         self.stack = []
         self.lineno = 0
         # ast tree
-        self.ctx = self.ast.Module(body=[
+        self.module = self.ast.Module(body=[
             self.ast.Assign(targets=[self.ast._name('_ctx', 'store')],
                             value=self.ast._call(self.ast._name('Context')))
         ])
+        self.ctx = self.module
+        self._associative_lines = {}
+        self._current_line_number = 0
 
     def push_context(self, ctx):
         self.level += 1
@@ -160,12 +168,13 @@ class Parser(object):
 
     @property
     def tree(self):
-        return self.stack[0]
+        return self.module
 
     def parse(self, input):
         for i, line in enumerate(input.readlines()):
             line = line.replace('\n', '')
             striped_line = line.strip()
+            self._current_line_number += 1
             if striped_line and len(striped_line) > 1 \
             and not striped_line.startswith(COMMENT):
                 self.lineno +=1
@@ -433,6 +442,7 @@ class Parser(object):
         replace them with result of code execution
         '''
         # list of parsed inline code blocks
+        old_line = line
         expr_list = []
         for match in self._text_inline_python.finditer(line):
             value = match.groups()[0][2:-2].strip()
@@ -441,24 +451,30 @@ class Parser(object):
             expr = ast.parse(value).body[0].value
             expr_list.append(expr)
         if expr_list:
-            return self.ast.BinOp(
+            _operator = self.ast.BinOp(
                     left=self.ast.Str(line),
                     op=self.ast.Mod(),
                     right=self.ast.Tuple(elts=expr_list, ctx=ast.Load())
                 )
+            self._associative_lines[_operator.lineno] = (self._current_line_number, old_line)
+            return _operator
         return self.ast.Str(line)
 
     def handle_for(self, line):
+        old_line = line
         if line[-1] != ':':
             line += ': pass'
         else:
             line += ' pass'
         _tree = ast.parse(line)
         _tree.body[0].body = []
+        self._associative_lines[self.lineno] = (self._current_line_number, old_line)
         return [_tree.body[0]]
 
 
 if __name__ == '__main__':
+    import sys
+    import traceback
     from sys import argv, stdout
     input = open(argv[1], 'r')
     parser = Parser()
@@ -476,5 +492,17 @@ if __name__ == '__main__':
         '__builtins__':__builtins__,
     }
     ns.update(data)
-    exec compile(tree, '<string>', 'exec') in ns
+    try:
+        compiled_souces = compile(tree, '<string>', 'exec')
+        exec compiled_souces in ns
+    except Exception, e:
+        tb = traceback.extract_tb(sys.exc_traceback)
+        line_number = tb[-1][1]
+        raise
+        template_line_number, line_text = parser._associative_lines[line_number]
+        raise TemplateError('Template line %d: %s:\n %s: %s' % (template_line_number,
+                                                 line_text,
+                                                 e.__class__.__name__,
+                                                 str(e)))
     ns['_ctx'].render(stdout)
+    #print parser._associative_lines

@@ -21,8 +21,13 @@
 
     .last.else#footer (title="footer block") FOOTER
 
-    @for k,v in __builtins__.__dict__.iteritems()
-      %p#{{ k }} {{ k }} : {{ v }}
+    %ul
+      @for k, v in __builtins__.__dict__.iteritems()
+        %li {{ k }} : {{ v }}
+
+    @for i in ((1,2,3), (1,2))
+      @for y in i
+        %p {{ y }}
 
 
-// vim: set ai sw=2 ts=2 sta et
+/ vim: set ai sw=2 ts=2 sta et
