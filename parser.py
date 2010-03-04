@@ -11,7 +11,8 @@ import htmlentitydefs
 #TODO
 # + Text escaping
 # - filters
-# - "IF-ELIF-ELSE" statement
+# + "IF-ELIF-ELSE" statement
+# - "IF-ELIF-ELSE" templates error handling
 # + "FOR" statement
 # - blocks (inheritance)
 # - python code blocks
@@ -160,6 +161,8 @@ class Parser(object):
         self._code_block = []
         self.in_text_block = False
         self._text_block = []
+        # if elif else
+        self._if_blocks = []
 
     def push_stack(self, ctx):
         '''
@@ -202,6 +205,9 @@ class Parser(object):
                 if self.need_next_line(line_type, line):
                     i += 1
                     continue
+                if self.if_node(line_type, line):
+                    i += 1
+                    continue
                 # reset internal buffers
                 self.reset()
                 if hasattr(self, 'handle_'+line_type):
@@ -228,6 +234,8 @@ class Parser(object):
             return 'for'
         elif line.startswith('@if'):
             return 'if'
+        elif line.startswith('@elif'):
+            return 'elif'
         elif line.startswith('@else'):
             return 'else'
         elif line.startswith(CODE_BLOCK_START):
@@ -270,6 +278,17 @@ class Parser(object):
         #if self.in_code_block:
             #self._code_block.append(line)
             #return True
+        return False
+
+    def if_node(self, line_type, line):
+        if line_type in ('if', 'elif', 'else'):
+            level = self._get_level(line)
+            # if line is upper level, we pop context
+            if level < self.level:
+                for i in range(self.level - level):
+                    self.pop_stack()
+            getattr(self, 'handle_'+line_type)(line.strip())
+            return True
         return False
 
     def _process_nodes(self, nodes, level):
@@ -517,7 +536,7 @@ class Parser(object):
         cutoff = level*self.indent
         code = '\n'.join([line[cutoff:] for line in codeblock])
         _tree = ast.parse(code)
-        print ast.dump(_tree)
+        #print ast.dump(_tree)
         #self._associative_lines[self.lineno] = (self._current_line_number, ' in codeblock')
         for node in _tree.body:
             self.ctx.append(node)
@@ -534,39 +553,34 @@ class Parser(object):
         self._associative_lines[self.lineno] = (self._current_line_number, old_line)
         return [_tree.body[0]]
 
-class PrintNodeVisitor(ast.NodeVisitor):
-    indent = '  '
+    def handle_if(self, line):
+        line = line[1:]
+        if line[-1] == ':':
+            line = line + ' pass'
+        else:
+            line = line + ': pass'
+        if_node = ast.parse(line).body[0]
+        if_node.body = []
+        self._if_blocks.append(if_node)
 
-    def __init__(self):
-        self._lines = {}
+        self.ctx.append(if_node)
+        self.push_stack(if_node.body)
 
-    def generic_visit(self, node):
-        self._lines.setdefault(node.lineno, []).append((type(node).__name__, node.col_offset))
-        super(PrintNodeVisitor, self).generic_visit(node)
+    def handle_elif(self, line):
+        line = line[3:]
+        if line[-1] == ':':
+            line = line + ' pass'
+        else:
+            line = line + ': pass'
+        if_node = ast.parse(line).body[0]
+        if_node.body = []
+        self._if_blocks[-1].orelse.append(if_node)
+        self._if_blocks.append(if_node)
+        self.push_stack(if_node.body)
 
-    def visit_Name(self, node):
-        self._lines.setdefault(node.lineno, []).append((node.id, node.col_offset))
-        super(PrintNodeVisitor, self).generic_visit(node)
-
-    def visit_Str(self, node):
-        self._lines.setdefault(node.lineno, []).append((node.s, node.col_offset))
-        super(PrintNodeVisitor, self).generic_visit(node)
-
-    def visit_FunctionDef(self, node):
-        self._lines.setdefault(node.lineno, []).append(('def %s'%node.name , node.col_offset))
-        super(PrintNodeVisitor, self).generic_visit(node)
-
-    def visit_Assign(self, node):
-        self._lines.setdefault(node.lineno, []).append((' = ', node.col_offset))
-        super(PrintNodeVisitor, self).generic_visit(node)
-
-    def visit_arguments(self, node):
-        self._lines.setdefault(node.lineno, []).append(('(%r)' % node.args, node.col_offset))
-        super(PrintNodeVisitor, self).generic_visit(node)
-
-    def visit_Load(self, node):pass
-    def visit_Store(self, node):pass
-    def visit_Param(self, node):pass
+    def handle_else(self, line):
+        last_if = self._if_blocks.pop()
+        self.push_stack(last_if.orelse)
 
 
 if __name__ == '__main__':
@@ -605,7 +619,3 @@ if __name__ == '__main__':
                                                  e.__class__.__name__,
                                                  str(e)))
     ns['__ctx__'].render(stdout)
-    #print ast.dump(tree.body[1])
-    #print parser._associative_lines
-    #printer = PrintNodeVisitor()
-    #printer.visit(tree)

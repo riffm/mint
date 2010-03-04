@@ -22,6 +22,16 @@
       Some text, more text. pSome text, more text.
       Some text, more text. pSome {{ c }}text, more text.
       <b>adadasdasd</b>
+      @if False
+        %p.if
+          @if False
+            %p.ifif
+          @else
+            %p.ifelse
+      @elif True
+        %p.elif
+      @else
+        %p.else
 
     .last.else#footer(title="footer block") FOOTER
 
