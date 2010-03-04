@@ -18,12 +18,13 @@
       Some text, more text{{a}}. pSome text, more text.
       Some text, more text. pSome text, more text.
       Some text, more text. pSome {{ c }}text, more text.
+      <b>adadasdasd</b>
 
     .last.else#footer (title="footer block") FOOTER
 
-    %ul
-      @for k, v in __builtins__.__dict__.iteritems()
-        %li {{ k }} : {{ v }}
+    /%ul
+      /@for k, v in __builtins__.__dict__.iteritems()
+        /%li {{ k }} : {{ v }}
 
     @for i in ((1,2,3), (1,2))
       @for y in i

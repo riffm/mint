@@ -34,12 +34,15 @@ UNSAFE_CHARS_ENTITIES = [(k, CHARS_ENTITIES[k]) for k in UNSAFE_CHARS]
 UNSAFE_CHARS_ENTITIES.append(("'",'&#39;'))
 
 
-class Node(object):
+def escape(obj):
+    text = str(obj)
+    for k, v in UNSAFE_CHARS_ENTITIES:
+        text = text.replace(k, v)
+    return text
 
-    def escape(self, text):
-        for k, v in UNSAFE_CHARS_ENTITIES:
-            text = text.replace(k, v)
-        return text
+
+class Node(object):
+    pass
 
 
 class Tag(Node):
@@ -89,7 +92,7 @@ class TextNode(Node):
 
     def render(self, out, indent=0):
         out.write('  '*indent)
-        out.write('%s\n' % self.escape(self.text))
+        out.write('%s\n' % self.text)
 
 
 class AstWrap(object):
@@ -449,7 +452,9 @@ class Parser(object):
             length = match.end() - match.start()
             line = line.replace(match.groups()[0], '%s', 1)
             expr = ast.parse(value).body[0].value
-            expr_list.append(expr)
+            expr_list.append(
+                self.ast._call(self.ast._name('__html_escape'), args=[expr])
+            )
         if expr_list:
             _operator = self.ast.BinOp(
                     left=self.ast.Str(line),
@@ -524,8 +529,11 @@ if __name__ == '__main__':
         'Tag':Tag,
         'TextNode':TextNode,
         '__builtins__':__builtins__,
+        '__html_escape':escape,
     }
     ns.update(data)
+    #TODO: divide compiling process exceptions from 
+    #      exceptions of execution
     try:
         compiled_souces = compile(tree, '<string>', 'exec')
         exec compiled_souces in ns
@@ -542,6 +550,3 @@ if __name__ == '__main__':
     #print parser._associative_lines
     printer = PrintNodeVisitor()
     printer.visit(tree)
-    #for i in range(len(printer._lines)):
-        #if i in printer._lines:
-            #print i, ' '.join([' '*offset+n for n, offset in printer._lines[i]])
