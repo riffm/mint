@@ -19,7 +19,7 @@ class TemplateError(Exception):
     pass
 
 
-class Context(object):
+class GrandNode(object):
 
     def __init__(self):
         self.nodes = []
@@ -137,33 +137,42 @@ class Parser(object):
 
     def __init__(self, indent=2):
         self.indent = indent
-        self.level = 0
         self.__id = 0
         self.ast = AstWrap(self)
-        # keeps all parents nodes
+        # parent nodes stack
         self.stack = []
-        self.lineno = 0
-        # ast tree
-        self.module = self.ast.Module(body=[
-            self.ast.Assign(targets=[self.ast._name('_ctx', 'store')],
-                            value=self.ast._call(self.ast._name('Context')))
-        ])
-        self.ctx = self.module
-        self._associative_lines = {}
+        # current tree line number
+        self.lineno = 1
+        # current line number in template
         self._current_line_number = 0
+        # final module, which stores all prepaired nodes
+        self.module = self.ast.Module(body=[
+            self.ast.Assign(targets=[self.ast._name('__ctx__', 'store')],
+                            value=self.ast._call(self.ast._name('__GRAND_NODE')))
+        ])
+        # current scope
+        self.ctx = self.module.body
+        # keeps track of all inline python expressions line numbers
+        self._associative_lines = {}
+        # indicates if we are in code or text block
+        self.in_code_block = False
+        self._code_block = []
+        self.in_text_block = False
+        self._text_block = []
 
-    def push_context(self, ctx):
-        self.level += 1
+    def push_stack(self, ctx):
+        '''
+        ctx - scope (list actualy)
+        '''
         self.stack.append(self.ctx)
         self.ctx = ctx
 
-    def pop_context(self):
-        self.level -= 1
+    def pop_stack(self):
         self.ctx = self.stack.pop()
 
-    def _push(self, node):
-        'Appending ast.Node to current ctx'
-        self.ctx.body.append(node)
+    @property
+    def level(self):
+        return len(self.stack)
 
     def _id(self):
         self.__id += 1
@@ -174,52 +183,100 @@ class Parser(object):
         return self.module
 
     def parse(self, input):
-        for i, line in enumerate(input.readlines()):
+        '''
+        input - file like object
+        '''
+        lines = input.readlines()
+        total_lines = len(lines)
+        i = 0
+        while i < total_lines:
+            line = lines[i]
             line = line.replace('\n', '')
             striped_line = line.strip()
             self._current_line_number += 1
             if striped_line and len(striped_line) > 1 \
             and not striped_line.startswith(COMMENT):
-                self.lineno +=1
-                self._process_line(line, i)
+                line_type = self.get_line_type(striped_line)
+                # if we are in code block or in text block
+                if self.need_next_line(line_type, line):
+                    i += 1
+                    continue
+                # reset internal buffers
+                self.reset()
+                if hasattr(self, 'handle_'+line_type):
+                    nodes = getattr(self, 'handle_'+line_type)(striped_line)
+                    level = self._get_level(line)
+                    self._process_nodes(nodes, level)
+                else:
+                    print 'unknown type: %s' % line_type
+            i += 1
+        del lines
 
-    def _process_line(self, line, line_number):
-        level = self._get_level(line)
+    def reset(self):
+        self.in_code_block = False
+        self.in_text_block = False
+        self._code_block = []
+        self._text_block = []
 
+    def get_line_type(self, line):
+        if line.startswith('%block'):
+            return 'block'
+        if line.startswith('%endblock'):
+            return 'endblock'
+        elif line.startswith('@for'):
+            return 'for'
+        elif line.startswith('@if'):
+            return 'if'
+        elif line.startswith('@else'):
+            return 'else'
+        elif line.startswith(CODE_BLOCK_START):
+            return 'codeblock'
+        elif line.startswith(CODE_BLOCK_END):
+            return 'endcodeblock'
+        elif line.startswith(HTML_TAG_START) or line.startswith('.') or line.startswith('#'):
+            return 'tag'
+        else:
+            return 'text'
+
+    def need_next_line(self, line_type, line):
+        if line_type == 'codeblock':
+            self.in_code_block = True
+            return True
+        if line_type == 'endcodeblock':
+            assert self.in_code_block, 'line %d: %s' % (self._current_line_number,
+                                                        line)
+            # process code stored block
+            self.handle_codeblock(self._code_block)
+            return True
+        if line_type == 'text':
+            self.in_text_block = True
+            if self.in_code_block:
+                self._code_block.append(line)
+            else:
+                self._text_block.append(line)
+            return True
+        # this line is not code block or text
+        # we must process all text lines stored
+        if self._text_block:
+            self.handle_text(self._text_block)
+            self._text_block = []
+        # Python comment comes here (i.e. # comment text)
+        #if self.in_code_block:
+            #self._code_block.append(line)
+            #return True
+        return False
+
+    def _process_nodes(self, nodes, level):
         # if line is upper level, we pop context
         if level < self.level:
             for i in range(self.level - level):
-                self.pop_context()
-
-        line = line.strip()
-        nodes = []
-        if line.startswith('%block'):
-            return
-        if line.startswith('%endblock'):
-            return
-        elif line.startswith('@for'):
-            nodes = self.handle_for(line[1:])
-        elif line.startswith('@if'):
-            return
-        elif line.startswith('@else'):
-            return
-        elif line.startswith(CODE_BLOCK_START):
-            return
-        elif line.startswith(CODE_BLOCK_END):
-            return
-        elif line.startswith(HTML_TAG_START) or line.startswith('.') or line.startswith('#'):
-            nodes = self.handle_tag(line)
-        else:
-            nodes = self.handle_text(line)
-
-        if not nodes:
-            raise TemplateError('line %d: %s' % (self.lineno, line))
+                self.pop_stack()
 
         # put all nodes to current scope
         for node in nodes:
-            self._push(node)
+            self.ctx.append(node)
         # first node (function) now is new scope
-        self.push_context(nodes[0])
+        self.push_stack(nodes[0].body)
 
     def _get_level(self, line):
         return (len(line) - len(line.lstrip()))/self.indent
@@ -293,10 +350,10 @@ class Parser(object):
         #print other_attrs, rest_line
 
         # if we are in function, parent name is - 'node', else 'None'
-        if filter(lambda p: type(p) is ast.FunctionDef, self.stack + [self.ctx]):
+        if self.level > 0:
             parent = 'node'
         else:
-            parent = '_ctx'
+            parent = '__ctx__'
 
         # Parent value name node
         parent = self.ast.Name(id=parent, ctx=ast.Load())
@@ -393,47 +450,31 @@ class Parser(object):
         )
         return _function, _function_call
 
-    def handle_text(self, line):
+    def handle_text(self, text_block):
         # if we are in function, parent name is - 'node', else '_ctx'
-        if filter(lambda p: type(p) is ast.FunctionDef, self.stack + [self.ctx]):
+        if self.level > 0:
             parent = 'node'
         else:
-            parent = '_ctx'
+            parent = '__ctx__'
+
+        line = '\n'.join(text_block)
 
         # Parent value name node
         parent = self.ast.Name(id=parent, ctx=ast.Load())
 
-        _func_name = '_text_%d' % self._id()
-
         _text_node = self._get_textnode(line)
 
-        _function = self.ast.FunctionDef(
-            name=_func_name,
-            args=self.ast.arguments(
-                args = [self.ast._name('parent', ctx='param')],
-                defaults=[]
-            ),
-            body=[
-                self.ast.Assign(
-                    targets=[self.ast._name('node', 'store')],
-                    value=self.ast._call(
-                        self.ast._name('TextNode'),
-                        args=[
-                            _text_node,
-                            self.ast._name('parent')
-                        ]
-                    )
-                )
-            ],
-            decorator_list=[]
-        )
-        _function_call = self.ast.Expr(
+        text_node = self.ast.Assign(
+            targets=[self.ast._name('textnode', 'store')],
             value=self.ast._call(
-                self.ast.Name(id=_func_name, ctx=ast.Load()),
-                args=[parent]
+                self.ast._name('TextNode'),
+                args=[
+                    _text_node,
+                    parent
+                ]
             )
         )
-        return _function, _function_call
+        self.ctx.append(text_node)
 
     _text_inline_python = re.compile(r'''
                           (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
@@ -465,8 +506,13 @@ class Parser(object):
             return _operator
         return self.ast.Str(line)
 
+    def handle_codeblock(self, codeblock):
+        #print codeblock
+        pass
+
     def handle_for(self, line):
         old_line = line
+        line = line[1:]
         if line[-1] != ':':
             line += ': pass'
         else:
@@ -525,7 +571,7 @@ if __name__ == '__main__':
         'c':'THIS IS C',
     }
     ns = {
-        'Context':Context,
+        '__GRAND_NODE':GrandNode,
         'Tag':Tag,
         'TextNode':TextNode,
         '__builtins__':__builtins__,
@@ -546,7 +592,8 @@ if __name__ == '__main__':
                                                  line_text,
                                                  e.__class__.__name__,
                                                  str(e)))
-    ns['_ctx'].render(stdout)
+    ns['__ctx__'].render(stdout)
+    #print ast.dump(tree.body[1])
     #print parser._associative_lines
     printer = PrintNodeVisitor()
     printer.visit(tree)

@@ -11,7 +11,9 @@
         %li
           %img#dhdh( src="http://localhost/{{ c }}.png")
     <%
-    /#PYTHON CODE BLOCK
+    /PYTHON CODE BLOCK
+    def unknown():
+        pass
     %>
     %p
       Some text, more text. pSome text, more text.
