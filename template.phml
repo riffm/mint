@@ -4,25 +4,26 @@
   %body
     #content
       %ul.list#menu
+        <%
+        /PYTHON CODE BLOCK
+        def func():
+            return '<>unknown %s' % c
+        %>
         %li
           %a(href="http://localhost{{ c }}")
             Link to something {{ a }}-{{ bool(b)}}.
             This is expression {{ a if b else c }}- {{b}}.
+            {{ func() }}
         %li
           %img#dhdh( src="http://localhost/{{ c }}.png")
-    <%
-    /PYTHON CODE BLOCK
-    def unknown():
-        pass
-    %>
     %p
-      Some text, more text. pSome text, more text.
+      Some text, more text. pSome text, more text. 
       Some text, more text{{a}}. pSome text, more text.
       Some text, more text. pSome text, more text.
       Some text, more text. pSome {{ c }}text, more text.
       <b>adadasdasd</b>
 
-    .last.else#footer (title="footer block") FOOTER
+    .last.else#footer(title="footer block") FOOTER
 
     /%ul
       /@for k, v in __builtins__.__dict__.iteritems()

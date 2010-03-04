@@ -10,7 +10,8 @@ import htmlentitydefs
 
 #TODO
 # + Text escaping
-# - "IF-ELSE" statement
+# - filters
+# - "IF-ELIF-ELSE" statement
 # + "FOR" statement
 # - blocks (inheritance)
 # - python code blocks
@@ -243,6 +244,11 @@ class Parser(object):
             self.in_code_block = True
             return True
         if line_type == 'endcodeblock':
+            # if line is upper level, we pop context
+            level = self._get_level(line)
+            if level < self.level:
+                for i in range(self.level - level):
+                    self.pop_stack()
             assert self.in_code_block, 'line %d: %s' % (self._current_line_number,
                                                         line)
             # process code stored block
@@ -285,7 +291,7 @@ class Parser(object):
                           ^%s(?P<name>[a-zA-Z-#._]+)   # tag name
                           ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
     _tag_attrs_re = re.compile(r'''
-                          (%s.*?%s)   # tag attrs (title="some title" href="http://host")
+                          ^(%s.*?%s)   # tag attrs (title="some title" href="http://host")
                           ''' % (re.escape('('), re.escape(')')), re.VERBOSE)
     _div_re = re.compile(r'''
                           ^(?P<name>(\.|\#)[a-zA-Z-#.]+)   # div attrs
@@ -507,8 +513,14 @@ class Parser(object):
         return self.ast.Str(line)
 
     def handle_codeblock(self, codeblock):
-        #print codeblock
-        pass
+        level = self._get_level(codeblock[0])
+        cutoff = level*self.indent
+        code = '\n'.join([line[cutoff:] for line in codeblock])
+        _tree = ast.parse(code)
+        print ast.dump(_tree)
+        #self._associative_lines[self.lineno] = (self._current_line_number, ' in codeblock')
+        for node in _tree.body:
+            self.ctx.append(node)
 
     def handle_for(self, line):
         old_line = line
@@ -595,5 +607,5 @@ if __name__ == '__main__':
     ns['__ctx__'].render(stdout)
     #print ast.dump(tree.body[1])
     #print parser._associative_lines
-    printer = PrintNodeVisitor()
-    printer.visit(tree)
+    #printer = PrintNodeVisitor()
+    #printer.visit(tree)
