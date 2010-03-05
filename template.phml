@@ -15,7 +15,7 @@
             This is expression {{ a if b else c }}- {{b}}.
             {{ func() }}
         %li
-          %img#dhdh( src="http://localhost/{{ c }}.png")
+          %img#dhdh( src="http://localhost/{{ c }}.png" alt="alter")
     %p
       Some text, more text. pSome text, more text. 
       Some text, more text{{a}}. pSome text, more text.

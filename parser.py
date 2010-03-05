@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-#from ast import *
 import re
 import ast
 import functools
@@ -55,15 +54,18 @@ class Tag(Node):
         parent.nodes.append(self)
         self.tag_name = tag_name
         self.nodes = []
-        self.attrs = []
+        self.attrs = {}
+        self.classes = []
+        self.id = None
         self.closed = tag_name in self._selfclosed
-        self.text_attr = ''
 
     def set_attr(self, name, value):
-        self.attrs.append((name, value))
-
-    def add_text_attr(self, text):
-        self.text_attr += ' %s' % text
+        if name == 'id':
+            self.id = value
+        elif name == 'class':
+            self.classes.append(value.strip())
+        else:
+            self.attrs[name] = value
 
     def add_text(self, text):
         TextNode(text, self)
@@ -71,10 +73,12 @@ class Tag(Node):
     def render(self, out, indent=0):
         out.write('  '*indent)
         out.write('<%s' % self.tag_name)
-        for attr in self.attrs:
-            out.write(' %s="%s" ' % attr)
-        if self.text_attr:
-            out.write(self.text_attr)
+        if self.id is not None:
+            out.write(' id="%s"' % self.id)
+        if self.classes:
+            out.write(' class="%s" ' % ' '.join(self.classes))
+        for item in self.attrs.items():
+            out.write(' %s="%s"' % item )
         if self.closed:
             out.write('/>\n')
             return
@@ -130,9 +134,19 @@ EXPR_TAG_START = '{{'
 EXPR_TAG_END = '}}'
 CODE_BLOCK_START = '<%'
 CODE_BLOCK_END = '%>'
+STMT_IF = '@if'
+STMT_ELIF = '@elif'
+STMT_ELSE = '@else'
 HTML_TAG_START = '%'
 PYTHON_STATEMENT = '@'
 COMMENT = '/'
+
+# Variable's names for generated code
+CTX = '__JAM_CTX__'
+GRAND_NODE = '__JAM_GRAND_NODE'
+TAG_NODE_CLASS = '__JAM_TAG_NODE'
+TEXT_NODE_CLASS = '__JAM_TEXT_NODE'
+ESCAPE_HELLPER = '__JAM_TEXT_ESCAPE'
 
 
 class Parser(object):
@@ -149,8 +163,8 @@ class Parser(object):
         self._current_line_number = 0
         # final module, which stores all prepaired nodes
         self.module = self.ast.Module(body=[
-            self.ast.Assign(targets=[self.ast._name('__ctx__', 'store')],
-                            value=self.ast._call(self.ast._name('__GRAND_NODE')))
+            self.ast.Assign(targets=[self.ast._name(CTX, 'store')],
+                            value=self.ast._call(self.ast._name(GRAND_NODE)))
         ])
         # current scope
         self.ctx = self.module.body
@@ -232,11 +246,11 @@ class Parser(object):
             return 'endblock'
         elif line.startswith('@for'):
             return 'for'
-        elif line.startswith('@if'):
+        elif line.startswith(STMT_IF):
             return 'if'
-        elif line.startswith('@elif'):
+        elif line.startswith(STMT_ELIF):
             return 'elif'
-        elif line.startswith('@else'):
+        elif line.startswith(STMT_ELSE):
             return 'else'
         elif line.startswith(CODE_BLOCK_START):
             return 'codeblock'
@@ -315,6 +329,9 @@ class Parser(object):
     _div_re = re.compile(r'''
                           ^(?P<name>(\.|\#)[a-zA-Z-#.]+)   # div attrs
                           ''', re.VERBOSE)
+    _attrs_list_re = re.compile(r'''
+                          (\w+=".*?")
+                          ''', re.VERBOSE)
 
     def _get_tag_attrs(self, data):
         '''
@@ -332,7 +349,7 @@ class Parser(object):
             classes = _classes.split('.')[1:]
         return classes, tag_id
 
-    def _parse_attrs(self, line):
+    def _split_attrs(self, line):
         '''
         get attrs from string '(attr="value" attr1="value1") some text'
         returns two strings 'attr="value" attr1="value1"' and 'some text'
@@ -343,6 +360,17 @@ class Parser(object):
             rest_line = line[match.end():].strip()
             return match.groups()[0][1:-1].strip(), rest_line
         return '', line.strip()
+
+    def _parse_attrs(self, line):
+        '''
+        Get attrs and values from string 'attr="value" attr1="value1"'.
+        Returns dict
+        '''
+        result = {}
+        for m in self._attrs_list_re.finditer(line):
+            key, value = m.groups()[0].split('=', 1)
+            result[key] = value[1:-1]
+        return result
 
     def handle_tag(self, line):
         rest_line = line
@@ -371,14 +399,15 @@ class Parser(object):
 
         # Here we got tag name and optional classes of tag and id.
         # Now we look at other attrs of tag
-        other_attrs, rest_line = self._parse_attrs(rest_line)
+        other_attrs, rest_line = self._split_attrs(rest_line)
+        attrs_dict = self._parse_attrs(other_attrs)
         #print other_attrs, rest_line
 
         # if we are in function, parent name is - 'node', else 'None'
         if self.level > 0:
             parent = 'node'
         else:
-            parent = '__ctx__'
+            parent = CTX
 
         # Parent value name node
         parent = self.ast.Name(id=parent, ctx=ast.Load())
@@ -397,7 +426,7 @@ class Parser(object):
                 self.ast.Assign(
                     targets=[self.ast._name('node', 'store')],
                     value=self.ast._call(
-                        self.ast._name('Tag'),
+                        self.ast._name(TAG_NODE_CLASS),
                         args=[
                             self.ast.Str(tag_name),
                             self.ast._name('parent')
@@ -409,18 +438,19 @@ class Parser(object):
         )
         # node.set_attr('class', '.....')
         if classes:
-            _function.body.append(
-                self.ast.Expr(
-                    value = self.ast._call(
-                        self.ast.Attribute(
-                            value=self.ast._name('node'),
-                            attr='set_attr',
-                            ctx=ast.Load()
-                        ),
-                        args=[self.ast.Str('class'), self.ast.Str(' '.join(classes))]
+            for cl in classes:
+                _function.body.append(
+                    self.ast.Expr(
+                        value = self.ast._call(
+                            self.ast.Attribute(
+                                value=self.ast._name('node'),
+                                attr='set_attr',
+                                ctx=ast.Load()
+                            ),
+                            args=[self.ast.Str('class'), self.ast.Str(cl)]
+                        )
                     )
                 )
-            )
         # node.set_attr('id', '....')
         if tag_id:
             _function.body.append(
@@ -431,25 +461,21 @@ class Parser(object):
                             attr='set_attr',
                             ctx=ast.Load()
                         ),
-                        args=[self.ast.Str('id'), self.ast.Str(tag_id)]
-                    )
-                )
+                        args=[self.ast.Str('id'), self.ast.Str(tag_id)]))
             )
         # node.add_text_attr('....')
-        if other_attrs:
-            _node = self._get_textnode(other_attrs)
-            _function.body.append(
-                self.ast.Expr(
-                    value = self.ast._call(
-                        self.ast.Attribute(
-                            value=self.ast._name('node'),
-                            attr='add_text_attr',
-                            ctx=ast.Load()
-                        ),
-                        args=[_node]
-                    )
+        if attrs_dict:
+            for k, v in attrs_dict.items():
+                _node = self._get_textnode(v)
+                _function.body.append(
+                    self.ast.Expr(
+                        value = self.ast._call(
+                            self.ast.Attribute(
+                                value=self.ast._name('node'),
+                                attr='set_attr',
+                                ctx=ast.Load()),
+                            args=[self.ast.Str(k), _node]))
                 )
-            )
         # node.add_text('...')
         if rest_line:
             _node = self._get_textnode(rest_line)
@@ -459,11 +485,8 @@ class Parser(object):
                         self.ast.Attribute(
                             value=self.ast._name('node'),
                             attr='add_text',
-                            ctx=ast.Load()
-                        ),
-                        args=[_node]
-                    )
-                )
+                            ctx=ast.Load()),
+                        args=[_node]))
             )
 
         # _tag_NUMBER(parent)
@@ -480,7 +503,7 @@ class Parser(object):
         if self.level > 0:
             parent = 'node'
         else:
-            parent = '__ctx__'
+            parent = CTX
 
         line = '\n'.join(text_block)
 
@@ -492,7 +515,7 @@ class Parser(object):
         text_node = self.ast.Assign(
             targets=[self.ast._name('textnode', 'store')],
             value=self.ast._call(
-                self.ast._name('TextNode'),
+                self.ast._name(TEXT_NODE_CLASS),
                 args=[
                     _text_node,
                     parent
@@ -519,7 +542,7 @@ class Parser(object):
             line = line.replace(match.groups()[0], '%s', 1)
             expr = ast.parse(value).body[0].value
             expr_list.append(
-                self.ast._call(self.ast._name('__html_escape'), args=[expr])
+                self.ast._call(self.ast._name(ESCAPE_HELLPER), args=[expr])
             )
         if expr_list:
             _operator = self.ast.BinOp(
@@ -597,11 +620,11 @@ if __name__ == '__main__':
         'c':'THIS IS C',
     }
     ns = {
-        '__GRAND_NODE':GrandNode,
-        'Tag':Tag,
-        'TextNode':TextNode,
+        GRAND_NODE:GrandNode,
+        TAG_NODE_CLASS:Tag,
+        TEXT_NODE_CLASS:TextNode,
+        ESCAPE_HELLPER:escape,
         '__builtins__':__builtins__,
-        '__html_escape':escape,
     }
     ns.update(data)
     #TODO: divide compiling process exceptions from 
@@ -618,4 +641,4 @@ if __name__ == '__main__':
                                                  line_text,
                                                  e.__class__.__name__,
                                                  str(e)))
-    ns['__ctx__'].render(stdout)
+    ns[CTX].render(stdout)
