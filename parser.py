@@ -15,6 +15,7 @@ import htmlentitydefs
 # + "FOR" statement
 # - blocks (inheritance)
 # - python code blocks
+# - '%' chars escaping in strings
 
 class TemplateError(Exception):
     pass
@@ -48,36 +49,22 @@ class Node(object):
 
 class Tag(Node):
 
-    _selfclosed = ['br', 'hr', 'img', 'meta']
+    _selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
 
     def __init__(self, tag_name, parent):
         parent.nodes.append(self)
         self.tag_name = tag_name
         self.nodes = []
-        self.attrs = {}
-        self.classes = []
-        self.id = None
+        self.attrs = []
         self.closed = tag_name in self._selfclosed
 
     def set_attr(self, name, value):
-        if name == 'id':
-            self.id = value
-        elif name == 'class':
-            self.classes.append(value.strip())
-        else:
-            self.attrs[name] = value
-
-    def add_text(self, text):
-        TextNode(text, self)
+        self.attrs.append((name, value))
 
     def render(self, out, indent=0):
         out.write('  '*indent)
         out.write('<%s' % self.tag_name)
-        if self.id is not None:
-            out.write(' id="%s"' % self.id)
-        if self.classes:
-            out.write(' class="%s" ' % ' '.join(self.classes))
-        for item in self.attrs.items():
+        for item in self.attrs:
             out.write(' %s="%s"' % item )
         if self.closed:
             out.write('/>\n')
@@ -132,14 +119,25 @@ class AstWrap(object):
 # Some usefull constants
 EXPR_TAG_START = '{{'
 EXPR_TAG_END = '}}'
-CODE_BLOCK_START = '<%'
-CODE_BLOCK_END = '%>'
-STMT_IF = '@if'
-STMT_ELIF = '@elif'
-STMT_ELSE = '@else'
-HTML_TAG_START = '%'
-PYTHON_STATEMENT = '@'
-COMMENT = '/'
+STMT_IF = '!if'
+STMT_ELIF = '!elif'
+STMT_ELSE = '!else'
+STMT_FOR = '!for'
+HTML_TAG_START = '<'
+COMMENT = '#'
+ESCAPE_CHAR = '\\'
+ATTR_CHAR = ':'
+
+# re
+_tag_re = re.compile(r'''
+                      ^%s\w+$   # tag name
+                      ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
+_attr_re = re.compile(r'''
+                      ^:\w+\s+
+                      ''', re.VERBOSE)
+_text_inline_python = re.compile(r'''
+                      (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
+                      ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
 
 # Variable's names for generated code
 CTX = '__JAM_CTX__'
@@ -159,8 +157,6 @@ class Parser(object):
         self.stack = []
         # current tree line number
         self.lineno = 1
-        # current line number in template
-        self._current_line_number = 0
         # final module, which stores all prepaired nodes
         self.module = self.ast.Module(body=[
             self.ast.Assign(targets=[self.ast._name(CTX, 'store')],
@@ -170,9 +166,7 @@ class Parser(object):
         self.ctx = self.module.body
         # keeps track of all inline python expressions line numbers
         self._associative_lines = {}
-        # indicates if we are in code or text block
-        self.in_code_block = False
-        self._code_block = []
+        # indicates if we are in text block
         self.in_text_block = False
         self._text_block = []
         # if elif else
@@ -211,14 +205,21 @@ class Parser(object):
             line = lines[i]
             line = line.replace('\n', '')
             striped_line = line.strip()
-            self._current_line_number += 1
-            if striped_line and len(striped_line) > 1 \
-            and not striped_line.startswith(COMMENT):
+            self.lineno += 1
+            if striped_line and not striped_line.startswith(COMMENT):
                 line_type = self.get_line_type(striped_line)
                 # if we are in code block or in text block
                 if self.need_next_line(line_type, line):
                     i += 1
                     continue
+
+                # if line is upper level, we pop context
+                level = self._get_level(line)
+                if level < self.level:
+                    for y in range(self.level - level):
+                        self.pop_stack()
+
+                # if-elif-else is special case
                 if self.if_node(line_type, line):
                     i += 1
                     continue
@@ -226,91 +227,56 @@ class Parser(object):
                 self.reset()
                 if hasattr(self, 'handle_'+line_type):
                     nodes = getattr(self, 'handle_'+line_type)(striped_line)
-                    level = self._get_level(line)
-                    self._process_nodes(nodes, level)
+                    self._process_nodes(nodes)
                 else:
                     print 'unknown type: %s' % line_type
             i += 1
+        if self._text_block:
+            self.handle_text(self._text_block)
         del lines
 
     def reset(self):
-        self.in_code_block = False
         self.in_text_block = False
-        self._code_block = []
         self._text_block = []
 
     def get_line_type(self, line):
-        if line.startswith('%block'):
-            return 'block'
-        if line.startswith('%endblock'):
-            return 'endblock'
-        elif line.startswith('@for'):
+        if line.startswith(STMT_FOR):
             return 'for'
+        elif _attr_re.match(line):
+            return 'attr'
         elif line.startswith(STMT_IF):
             return 'if'
         elif line.startswith(STMT_ELIF):
             return 'elif'
         elif line.startswith(STMT_ELSE):
             return 'else'
-        elif line.startswith(CODE_BLOCK_START):
-            return 'codeblock'
-        elif line.startswith(CODE_BLOCK_END):
-            return 'endcodeblock'
-        elif line.startswith(HTML_TAG_START) or line.startswith('.') or line.startswith('#'):
+        elif _tag_re.match(line):
             return 'tag'
         else:
             return 'text'
 
     def need_next_line(self, line_type, line):
-        if line_type == 'codeblock':
-            self.in_code_block = True
-            return True
-        if line_type == 'endcodeblock':
-            # if line is upper level, we pop context
-            level = self._get_level(line)
-            if level < self.level:
-                for i in range(self.level - level):
-                    self.pop_stack()
-            assert self.in_code_block, 'line %d: %s' % (self._current_line_number,
-                                                        line)
-            # process code stored block
-            self.handle_codeblock(self._code_block)
-            return True
         if line_type == 'text':
             self.in_text_block = True
-            if self.in_code_block:
-                self._code_block.append(line)
-            else:
-                self._text_block.append(line)
+            self._text_block.append(line)
             return True
-        # this line is not code block or text
         # we must process all text lines stored
         if self._text_block:
             self.handle_text(self._text_block)
             self._text_block = []
-        # Python comment comes here (i.e. # comment text)
-        #if self.in_code_block:
-            #self._code_block.append(line)
-            #return True
+        # attrs
+        if line_type == 'attr':
+            self.handle_attr(line.strip())
+            return True
         return False
 
     def if_node(self, line_type, line):
         if line_type in ('if', 'elif', 'else'):
-            level = self._get_level(line)
-            # if line is upper level, we pop context
-            if level < self.level:
-                for i in range(self.level - level):
-                    self.pop_stack()
             getattr(self, 'handle_'+line_type)(line.strip())
             return True
         return False
 
-    def _process_nodes(self, nodes, level):
-        # if line is upper level, we pop context
-        if level < self.level:
-            for i in range(self.level - level):
-                self.pop_stack()
-
+    def _process_nodes(self, nodes):
         # put all nodes to current scope
         for node in nodes:
             self.ctx.append(node)
@@ -320,89 +286,8 @@ class Parser(object):
     def _get_level(self, line):
         return (len(line) - len(line.lstrip()))/self.indent
 
-    _tag_re = re.compile(r'''
-                          ^%s(?P<name>[a-zA-Z-#._]+)   # tag name
-                          ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
-    _tag_attrs_re = re.compile(r'''
-                          ^(%s.*?%s)   # tag attrs (title="some title" href="http://host")
-                          ''' % (re.escape('('), re.escape(')')), re.VERBOSE)
-    _div_re = re.compile(r'''
-                          ^(?P<name>(\.|\#)[a-zA-Z-#.]+)   # div attrs
-                          ''', re.VERBOSE)
-    _attrs_list_re = re.compile(r'''
-                          (\w+=".*?")
-                          ''', re.VERBOSE)
-
-    def _get_tag_attrs(self, data):
-        '''
-        parse string representing classes and id
-        .class.other-class#id -> ['class', 'other-class'], id
-        '''
-        classes = []
-        tag_id = None
-        _classes = ''
-        if '#' in data:
-            _classes, tag_id = data.split('#')
-        else:
-            _classes = data
-        if _classes:
-            classes = _classes.split('.')[1:]
-        return classes, tag_id
-
-    def _split_attrs(self, line):
-        '''
-        get attrs from string '(attr="value" attr1="value1") some text'
-        returns two strings 'attr="value" attr1="value1"' and 'some text'
-        '''
-        match = self._tag_attrs_re.search(line)
-        rest_line = ''
-        if match:
-            rest_line = line[match.end():].strip()
-            return match.groups()[0][1:-1].strip(), rest_line
-        return '', line.strip()
-
-    def _parse_attrs(self, line):
-        '''
-        Get attrs and values from string 'attr="value" attr1="value1"'.
-        Returns dict
-        '''
-        result = {}
-        for m in self._attrs_list_re.finditer(line):
-            key, value = m.groups()[0].split('=', 1)
-            result[key] = value[1:-1]
-        return result
-
     def handle_tag(self, line):
-        rest_line = line
-        tag_name = 'div'
-        tag_attrs = ''
-        if self._tag_re.match(line):
-            data = self._tag_re.match(line).groupdict('name')
-            name = data['name']
-            if '.' in name:
-                tag_name = name.split('.')[0]
-                tag_attrs = name[len(tag_name):]
-            elif '#' in name:
-                tag_name = name.split('#')[0]
-                tag_attrs = name[len(tag_name):]
-            else:
-                tag_name = name
-            rest_line = line[len(tag_name)+len(tag_attrs)+1:]
-        elif self._div_re.match(line):
-            data = self._div_re.match(line).groupdict('name')
-            tag_attrs = data['name']
-            rest_line = line[len(tag_attrs):]
-        else:
-            raise TemplateError('line %d: %s' % (self.lineno, line))
-        # get classes list and id
-        classes, tag_id = self._get_tag_attrs(tag_attrs)
-
-        # Here we got tag name and optional classes of tag and id.
-        # Now we look at other attrs of tag
-        other_attrs, rest_line = self._split_attrs(rest_line)
-        attrs_dict = self._parse_attrs(other_attrs)
-        #print other_attrs, rest_line
-
+        tag_name = line[1:]
         # if we are in function, parent name is - 'node', else 'None'
         if self.level > 0:
             parent = 'node'
@@ -420,8 +305,7 @@ class Parser(object):
             name=_func_name,
             args=self.ast.arguments(
                 args = [self.ast._name('parent', ctx='param')],
-                defaults=[]
-            ),
+                defaults=[]),
             body=[
                 self.ast.Assign(
                     targets=[self.ast._name('node', 'store')],
@@ -429,73 +313,14 @@ class Parser(object):
                         self.ast._name(TAG_NODE_CLASS),
                         args=[
                             self.ast.Str(tag_name),
-                            self.ast._name('parent')
-                        ]
-                    )
-                )
-            ],
-            decorator_list=[]
-        )
-        # node.set_attr('class', '.....')
-        if classes:
-            for cl in classes:
-                _function.body.append(
-                    self.ast.Expr(
-                        value = self.ast._call(
-                            self.ast.Attribute(
-                                value=self.ast._name('node'),
-                                attr='set_attr',
-                                ctx=ast.Load()
-                            ),
-                            args=[self.ast.Str('class'), self.ast.Str(cl)]
-                        )
-                    )
-                )
-        # node.set_attr('id', '....')
-        if tag_id:
-            _function.body.append(
-                self.ast.Expr(
-                    value = self.ast._call(
-                        self.ast.Attribute(
-                            value=self.ast._name('node'),
-                            attr='set_attr',
-                            ctx=ast.Load()
-                        ),
-                        args=[self.ast.Str('id'), self.ast.Str(tag_id)]))
-            )
-        # node.add_text_attr('....')
-        if attrs_dict:
-            for k, v in attrs_dict.items():
-                _node = self._get_textnode(v)
-                _function.body.append(
-                    self.ast.Expr(
-                        value = self.ast._call(
-                            self.ast.Attribute(
-                                value=self.ast._name('node'),
-                                attr='set_attr',
-                                ctx=ast.Load()),
-                            args=[self.ast.Str(k), _node]))
-                )
-        # node.add_text('...')
-        if rest_line:
-            _node = self._get_textnode(rest_line)
-            _function.body.append(
-                self.ast.Expr(
-                    value = self.ast._call(
-                        self.ast.Attribute(
-                            value=self.ast._name('node'),
-                            attr='add_text',
-                            ctx=ast.Load()),
-                        args=[_node]))
-            )
+                            self.ast._name('parent')]))],
+            decorator_list=[])
 
         # _tag_NUMBER(parent)
         _function_call = self.ast.Expr(
             value=self.ast._call(
                 self.ast.Name(id=_func_name, ctx=ast.Load()),
-                args=[parent]
-            )
-        )
+                args=[parent]))
         return _function, _function_call
 
     def handle_text(self, text_block):
@@ -516,17 +341,28 @@ class Parser(object):
             targets=[self.ast._name('textnode', 'store')],
             value=self.ast._call(
                 self.ast._name(TEXT_NODE_CLASS),
-                args=[
-                    _text_node,
-                    parent
-                ]
-            )
-        )
+                args=[_text_node, parent]))
         self.ctx.append(text_node)
 
-    _text_inline_python = re.compile(r'''
-                          (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
-                          ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
+    def handle_attr(self, line):
+        line = line[1:]
+        if self.level < 1:
+            raise TemplateError('You can not set attributes at zero level: line %d' % self.lineno)
+
+        name = line
+        other_content = ''
+        if ' ' in line:
+            name, other_content = line.split(' ',1)
+        _text_node = self._get_textnode(other_content)
+
+        text_node = self.ast.Expr(
+            value = self.ast._call(
+                self.ast.Attribute(
+                    value=self.ast._name('node'),
+                    attr='set_attr',
+                    ctx=ast.Load()),
+                args=[self.ast.Str(name), _text_node]))
+        self.ctx.append(text_node)
 
     def _get_textnode(self, line):
         '''
@@ -536,7 +372,7 @@ class Parser(object):
         # list of parsed inline code blocks
         old_line = line
         expr_list = []
-        for match in self._text_inline_python.finditer(line):
+        for match in _text_inline_python.finditer(line):
             value = match.groups()[0][2:-2].strip()
             length = match.end() - match.start()
             line = line.replace(match.groups()[0], '%s', 1)
@@ -550,19 +386,8 @@ class Parser(object):
                     op=self.ast.Mod(),
                     right=self.ast.Tuple(elts=expr_list, ctx=ast.Load())
                 )
-            self._associative_lines[_operator.lineno] = (self._current_line_number, old_line)
             return _operator
         return self.ast.Str(line)
-
-    def handle_codeblock(self, codeblock):
-        level = self._get_level(codeblock[0])
-        cutoff = level*self.indent
-        code = '\n'.join([line[cutoff:] for line in codeblock])
-        _tree = ast.parse(code)
-        #print ast.dump(_tree)
-        #self._associative_lines[self.lineno] = (self._current_line_number, ' in codeblock')
-        for node in _tree.body:
-            self.ctx.append(node)
 
     def handle_for(self, line):
         old_line = line
@@ -573,7 +398,6 @@ class Parser(object):
             line += ' pass'
         _tree = ast.parse(line)
         _tree.body[0].body = []
-        self._associative_lines[self.lineno] = (self._current_line_number, old_line)
         return [_tree.body[0]]
 
     def handle_if(self, line):
@@ -611,13 +435,15 @@ if __name__ == '__main__':
     import traceback
     from sys import argv, stdout
     input = open(argv[1], 'r')
-    parser = Parser()
+    parser = Parser(indent=4)
     parser.parse(input)
     tree = parser.tree
+    #print ast.dump(tree)
     data = {
         'a':'THIS IS A<`^$#&',
         'b':False,
         'c':'THIS IS C',
+        'url_for_static':lambda s: s,
     }
     ns = {
         GRAND_NODE:GrandNode,
@@ -630,7 +456,7 @@ if __name__ == '__main__':
     #TODO: divide compiling process exceptions from 
     #      exceptions of execution
     try:
-        compiled_souces = compile(tree, '<string>', 'exec')
+        compiled_souces = compile(tree, argv[1], 'exec')
         exec compiled_souces in ns
     except Exception, e:
         tb = traceback.extract_tb(sys.exc_traceback)

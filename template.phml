@@ -1,47 +1,59 @@
-%html
-  %head
-    %title
-  %body
-    #content
-      %ul.list#menu
-        <%
-        /PYTHON CODE BLOCK
-        def func():
-            return '<>unknown %s' % c
-        %>
-        %li
-          %a(href="http://localhost{{ c }}")
-            Link to something {{ a }}-{{ bool(b)}}.
-            This is expression {{ a if b else c }}- {{b}}.
-            {{ func() }}
-        %li
-          %img#dhdh( src="http://localhost/{{ c }}.png" alt="alter")
-    %p
-      Some text, more text. pSome text, more text. 
-      Some text, more text{{a}}. pSome text, more text.
-      Some text, more text. pSome text, more text.
-      Some text, more text. pSome {{ c }}text, more text.
-      <b>adadasdasd</b>
-      @if False
-        %p.if
-          @if False
-            %p.ifif
-          @else
-            %p.ifelse
-      @elif True
-        %p.elif
-      @else
-        %p.else
+<link
 
-    .last.else#footer(title="footer block") FOOTER
+<script
+    var IMG_OPEN = '{{ url_for_static('img/img.png') }}';
+    var IMG_HIDE = 'url_for_static('img/img.png')';
 
-    /%ul
-      /@for k, v in __builtins__.__dict__.iteritems()
-        /%li {{ k }} : {{ v }}
+<form
 
-    @for i in ((1,2,3), (1,2))
-      @for y in i
-        %p {{ y }}
+    <div
+        <input
+            :src {{ url_for_static('img/search.png') }}
+    <div
+        :id div-input-right2
+
+    <div
+        :id div-search-example
+        <span
+            :class span-header
+            Например:
+        <span
+            :class span-example-text
+            атомные технологии
+
+    <div
+        :id div-search-find
+        <span
+            :class span-header
+            Найдено
+        <span
+            :id span-finded-text
+            {{ c }}
+
+    <div
+        :id div-search-show
+        <span
+            :style float: left;
+            :class span-header
+            Показывать по
+        <div
+            :id div-show-left
+            :title {{ a }}
+        <div
+            :id div-show-qty
+            {{ b }}
+        <input
+            :type hidden
+            :value {{ b }}
+            :name limit
+            !if not bool(b)
+                :id limit
+        <div
+            :style clear: both;
 
 
-/ vim: set ai sw=2 ts=2 sta et
+    <select
+        !for k,v in __builtins__.__dict__.items()
+            <option
+                :value {{ k }}
+                {{ v }}
