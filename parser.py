@@ -372,17 +372,23 @@ class Parser(object):
         # list of parsed inline code blocks
         old_line = line
         expr_list = []
+        constructed_str = ''
+        last_match_end = 0
         for match in _text_inline_python.finditer(line):
             value = match.groups()[0][2:-2].strip()
-            length = match.end() - match.start()
-            line = line.replace(match.groups()[0], '%s', 1)
+            constructed_str += line[last_match_end:match.start()].replace('%', '%%')
+            constructed_str += '%s'
+            last_match_end = match.end()
             expr = ast.parse(value).body[0].value
             expr_list.append(
                 self.ast._call(self.ast._name(ESCAPE_HELLPER), args=[expr])
             )
+        # append rest of line
+        if last_match_end < len(line):
+            constructed_str += line[last_match_end:]
         if expr_list:
             _operator = self.ast.BinOp(
-                    left=self.ast.Str(line),
+                    left=self.ast.Str(constructed_str),
                     op=self.ast.Mod(),
                     right=self.ast.Tuple(elts=expr_list, ctx=ast.Load())
                 )

@@ -16,7 +16,7 @@
         :id div-search-example
         <span
             :class span-header
-            Например:
+            Например: % {{ a }} %s {{ b }}
         <span
             :class span-example-text
             атомные технологии
@@ -52,8 +52,8 @@
             :style clear: both;
 
 
-    <select
-        !for k,v in __builtins__.__dict__.items()
-            <option
-                :value {{ k }}
-                {{ v }}
+    #<select
+        #!for k,v in __builtins__.__dict__.items()
+            #<option
+                #:value {{ k }}
+                #{{ v }}
