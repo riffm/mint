@@ -14,9 +14,10 @@
 
     <div
         :id div-search-example
+        !f, f1 = ('f', 'f1')
         <span
             :class span-header
-            Например: % {{ a }} %s {{ b }}
+            Например: % {{ a }} %s {{ b }} {{ f }} {{ f1 }}
         <span
             :class span-example-text
             атомные технологии

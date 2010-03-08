@@ -9,13 +9,12 @@ import htmlentitydefs
 
 #TODO
 # + Text escaping
-# - filters
 # + "IF-ELIF-ELSE" statement
 # - "IF-ELIF-ELSE" templates error handling
 # + "FOR" statement
 # - blocks (inheritance)
-# - python code blocks
-# - '%' chars escaping in strings
+# + python variables (i.e. !a = 'hello')
+# + '%' chars escaping in strings
 
 class TemplateError(Exception):
     pass
@@ -123,6 +122,7 @@ STMT_IF = '!if'
 STMT_ELIF = '!elif'
 STMT_ELSE = '!else'
 STMT_FOR = '!for'
+PYTHON_VARIABLE_START = '!'
 HTML_TAG_START = '<'
 COMMENT = '#'
 ESCAPE_CHAR = '\\'
@@ -138,6 +138,9 @@ _attr_re = re.compile(r'''
 _text_inline_python = re.compile(r'''
                       (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
                       ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
+_python_variable = re.compile(r'''
+                      ^%s\s*[1-9_a-zA-Z, ]+\s*=
+                      ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
 
 # Variable's names for generated code
 CTX = '__JAM_CTX__'
@@ -250,6 +253,8 @@ class Parser(object):
             return 'elif'
         elif line.startswith(STMT_ELSE):
             return 'else'
+        elif _python_variable.match(line):
+            return 'set'
         elif _tag_re.match(line):
             return 'tag'
         else:
@@ -261,12 +266,11 @@ class Parser(object):
             self._text_block.append(line)
             return True
         # we must process all text lines stored
-        if self._text_block:
+        elif self._text_block:
             self.handle_text(self._text_block)
             self._text_block = []
-        # attrs
-        if line_type == 'attr':
-            self.handle_attr(line.strip())
+        elif line_type in ('attr', 'set'):
+            getattr(self, 'handle_'+line_type)(line.strip())
             return True
         return False
 
@@ -370,7 +374,6 @@ class Parser(object):
         replace them with result of code execution
         '''
         # list of parsed inline code blocks
-        old_line = line
         expr_list = []
         constructed_str = ''
         last_match_end = 0
@@ -395,8 +398,12 @@ class Parser(object):
             return _operator
         return self.ast.Str(line)
 
+    def handle_set(self, line):
+        line = line[1:]
+        set = ast.parse(line).body[0]
+        self.ctx.append(set)
+
     def handle_for(self, line):
-        old_line = line
         line = line[1:]
         if line[-1] != ':':
             line += ': pass'
