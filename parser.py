@@ -468,16 +468,6 @@ if __name__ == '__main__':
     ns.update(data)
     #TODO: divide compiling process exceptions from 
     #      exceptions of execution
-    try:
-        compiled_souces = compile(tree, argv[1], 'exec')
-        exec compiled_souces in ns
-    except Exception, e:
-        tb = traceback.extract_tb(sys.exc_traceback)
-        line_number = tb[-1][1]
-        raise
-        template_line_number, line_text = parser._associative_lines[line_number]
-        raise TemplateError('Template line %d: %s:\n %s: %s' % (template_line_number,
-                                                 line_text,
-                                                 e.__class__.__name__,
-                                                 str(e)))
+    compiled_souces = compile(tree, argv[1], 'exec')
+    exec compiled_souces in ns
     ns[CTX].render(stdout)
