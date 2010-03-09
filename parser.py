@@ -83,7 +83,6 @@ class TextNode(Node):
         self.text = text
 
     def render(self, out, indent=0):
-        out.write('  '*indent)
         out.write('%s\n' % self.text)
 
 
@@ -123,6 +122,7 @@ STMT_ELIF = '!elif'
 STMT_ELSE = '!else'
 STMT_FOR = '!for'
 PYTHON_VARIABLE_START = '!'
+SLOT_DEF = '!def '
 HTML_TAG_START = '<'
 COMMENT = '#'
 ESCAPE_CHAR = '\\'
@@ -140,6 +140,12 @@ _text_inline_python = re.compile(r'''
                       ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
 _python_variable = re.compile(r'''
                       ^%s\s*[1-9_a-zA-Z, ]+\s*=
+                      ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
+_slot_def = re.compile(r'''
+                      ^%sdef\s+(?P<name>[a-zA-Z_]{1}[a-zA-Z1-9_]*)\(
+                      ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
+_slot_call = re.compile(r'''
+                      ^%s(?P<name>[a-zA-Z_]{1}[a-zA-Z1-9_]*)\(
                       ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
 
 # Variable's names for generated code
@@ -174,6 +180,7 @@ class Parser(object):
         self._text_block = []
         # if elif else
         self._if_blocks = []
+        self.slots = {}
 
     def push_stack(self, ctx):
         '''
@@ -195,6 +202,9 @@ class Parser(object):
 
     @property
     def tree(self):
+        if self.slots:
+            for slot in self.slots.values():
+                self.module.body.append(slot)
         return self.module
 
     def parse(self, input):
@@ -222,8 +232,8 @@ class Parser(object):
                     for y in range(self.level - level):
                         self.pop_stack()
 
-                # if-elif-else is special case
-                if self.if_node(line_type, line):
+                # if-elif-else, slot are special cases
+                if self.python_statement(line_type, line):
                     i += 1
                     continue
                 # reset internal buffers
@@ -255,6 +265,11 @@ class Parser(object):
             return 'else'
         elif _python_variable.match(line):
             return 'set'
+        elif line.startswith(SLOT_DEF):
+            return 'slot'
+        elif line.startswith(PYTHON_VARIABLE_START):
+            # I guess it is a slot call
+            return 'slotcall'
         elif _tag_re.match(line):
             return 'tag'
         else:
@@ -274,8 +289,8 @@ class Parser(object):
             return True
         return False
 
-    def if_node(self, line_type, line):
-        if line_type in ('if', 'elif', 'else'):
+    def python_statement(self, line_type, line):
+        if line_type in ('if', 'elif', 'else', 'slot', 'slotcall'):
             getattr(self, 'handle_'+line_type)(line.strip())
             return True
         return False
@@ -402,6 +417,62 @@ class Parser(object):
         line = line[1:]
         set = ast.parse(line).body[0]
         self.ctx.append(set)
+
+    def handle_slot(self, line):
+        m = _slot_def.match(line)
+        if m:
+            slot_name = m.groupdict()['name']
+            if line[-1] == ':':
+                line += ' pass'
+            else:
+                line += ': pass'
+            slot_tree = ast.parse(line[1:]).body[0]
+            slot_tree.body = []
+            self.slots[slot_name] = slot_tree
+            self.push_stack(slot_tree.body)
+        else:
+            raise TemplateError('Syntax error: %d: %s' % (self.lineno, line))
+
+    def handle_slotcall(self, line):
+        m = _slot_call.match(line)
+        if m:
+            slotname = m.groupdict()['name']
+            # TODO: raise correct exception when slot is absent
+            slotdef = self.slots[slotname]
+            slotcall = ast.parse(line[1:]).body[0]
+            # if we are in function, parent name is - 'node', else 'None'
+            if self.level > 0:
+                parent = 'node'
+            else:
+                parent = CTX
+
+            # Parent value name node
+            parent = self.ast.Name(id=parent, ctx=ast.Load())
+
+            _func_name = '_slot_%d' % self._id()
+
+            # def _slot_NUM(parent):
+            #     def slotname(*slotargs, **slotkwargs):
+            #         ...
+            #     slotname(1,'two',a)
+            _function = self.ast.FunctionDef(
+                name=_func_name,
+                args=self.ast.arguments(
+                    args = [self.ast._name('parent', ctx='param')],
+                    defaults=[]),
+                body=[slotdef, slotcall],
+                decorator_list=[])
+
+            # _slot_NUM(node)
+            _function_call = self.ast.Expr(
+                value=self.ast._call(
+                    self.ast.Name(id=_func_name, ctx=ast.Load()),
+                    args=[parent]))
+            self.ctx.append(_function)
+            self.ctx.append(_function_call)
+        else:
+            raise TemplateError('Syntax error: %d: %s' % (self.lineno, line))
+
 
     def handle_for(self, line):
         line = line[1:]

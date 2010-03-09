@@ -52,6 +52,12 @@
         <div
             :style clear: both;
 
+        !def slot(k, v)
+            <p
+                :class {{ v }}
+                {{ k }} - {{ a }}
+
+        !slot('one', 2)
 
     #<select
         #!for k,v in __builtins__.__dict__.items()
