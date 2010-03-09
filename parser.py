@@ -460,7 +460,10 @@ class Parser(object):
                 args=self.ast.arguments(
                     args = [self.ast._name('parent', ctx='param')],
                     defaults=[]),
-                body=[slotdef, slotcall],
+                body=[
+                    self.ast.Assign(targets=[self.ast._name('node', 'store')],
+                                    value=self.ast._name('parent')),
+                    slotdef, slotcall],
                 decorator_list=[])
 
             # _slot_NUM(node)
