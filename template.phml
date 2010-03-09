@@ -1,8 +1,14 @@
+!def slot(k, v)
+    <p
+        :class {{ v }}
+        {{ k }} - {{ a }}
+
 <link
 
 <script
     var IMG_OPEN = '{{ url_for_static('img/img.png') }}';
     var IMG_HIDE = 'url_for_static('img/img.png')';
+
 
 <form
 
@@ -49,13 +55,11 @@
             :name limit
             !if not bool(b)
                 :id limit
+
+
         <div
             :style clear: both;
 
-        !def slot(k, v)
-            <p
-                :class {{ v }}
-                {{ k }} - {{ a }}
 
         !slot('one', 2)
 
@@ -64,3 +68,4 @@
             #<option
                 #:value {{ k }}
                 #{{ v }}
+
