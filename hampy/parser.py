@@ -123,6 +123,7 @@ STMT_ELSE = '!else'
 STMT_FOR = '!for'
 PYTHON_VARIABLE_START = '!'
 SLOT_DEF = '!def '
+STMT_BASE = '@base'
 HTML_TAG_START = '<'
 COMMENT = '#'
 ESCAPE_CHAR = '\\'
@@ -158,7 +159,7 @@ ESCAPE_HELLPER = '__JAM_TEXT_ESCAPE'
 
 class Parser(object):
 
-    def __init__(self, indent=2):
+    def __init__(self, base=None, indent=2):
         self.indent = indent
         self.__id = 0
         self.ast = AstWrap(self)
@@ -167,20 +168,21 @@ class Parser(object):
         # current tree line number
         self.lineno = 1
         # final module, which stores all prepaired nodes
-        self.module = self.ast.Module(body=[
-            self.ast.Assign(targets=[self.ast._name(CTX, 'store')],
-                            value=self.ast._call(self.ast._name(GRAND_NODE)))
-        ])
+        if base is not None:
+            self.module = base.module
+        else:
+            self.module = self.ast.Module(body=[
+                self.ast.Assign(targets=[self.ast._name(CTX, 'store')],
+                                value=self.ast._call(self.ast._name(GRAND_NODE)))
+            ])
         # current scope
         self.ctx = self.module.body
-        # keeps track of all inline python expressions line numbers
-        self._associative_lines = {}
         # indicates if we are in text block
-        self.in_text_block = False
+        self._in_text_block = False
         self._text_block = []
         # if elif else
         self._if_blocks = []
-        self.slots = {}
+        self._slots = {}
         self._slot_level = None
         self.store = {}
         self.ctx_type = 'normal'
@@ -208,7 +210,7 @@ class Parser(object):
             self.ctx = None
             self.stack = []
         else:
-            raise ValueError(to)
+            raise ValueError('Unknown context "%s"' % to)
 
     def _id(self):
         self.__id += 1
@@ -260,7 +262,7 @@ class Parser(object):
         del lines
 
     def reset(self):
-        self.in_text_block = False
+        self._in_text_block = False
         self._text_block = []
 
     def get_line_type(self, line):
@@ -283,13 +285,15 @@ class Parser(object):
             return 'slotcall'
         elif _tag_re.match(line):
             return 'tag'
+        elif line.startswith(STMT_BASE):
+            return 'base'
         else:
             return 'text'
 
     def need_next_line(self, line_type, line):
         level = self._get_level(line)
         if line_type == 'text':
-            self.in_text_block = True
+            self._in_text_block = True
             self._text_block.append(line)
             return True
         # we must process all text lines stored
@@ -307,6 +311,8 @@ class Parser(object):
         if (self.ctx_type == 'slot') and (level <= 0):
             self._slot_level = None
             self.switch_ctx()
+        if line_type == 'base':
+            self.handle_base(line.strip())
         return False
 
     def python_statement(self, line_type, line):
@@ -442,15 +448,15 @@ class Parser(object):
     def handle_slot(self, line):
         m = _slot_def.match(line)
         if m:
-            slot_name = m.groupdict()['name']
+            slotname = m.groupdict()['name']
             if line[-1] == ':':
                 line += ' pass'
             else:
                 line += ': pass'
-            slot_tree = ast.parse(line[1:]).body[0]
-            slot_tree.body = []
-            self.slots[slot_name] = slot_tree
-            self.ctx = slot_tree.body
+            slottree = ast.parse(line[1:]).body[0]
+            #slot_tree.body = []
+            self._slots[slotname] = slottree
+            self.ctx = slottree.body
         else:
             raise TemplateError('Syntax error: %d: %s' % (self.lineno, line))
 
@@ -459,7 +465,7 @@ class Parser(object):
         if m:
             slotname = m.groupdict()['name']
             # TODO: raise correct exception when slot is absent
-            slotdef = self.slots[slotname]
+            slotdef = self._slots[slotname]
             slotcall = ast.parse(line[1:]).body[0]
             # if we are in function, parent name is - 'node', else 'None'
             if self.level > 0:
@@ -547,7 +553,7 @@ if __name__ == '__main__':
     parser.parse(input)
     tree = parser.tree
     #print ast.dump(tree)
-    #print ast.dump(parser.slots['slot'])
+    #print ast.dump(parser._slots['slot'])
     data = {
         'a':'THIS IS A<`^$#&',
         'b':False,
