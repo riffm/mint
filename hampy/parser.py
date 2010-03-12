@@ -114,50 +114,59 @@ class AstWrap(object):
                          starargs=None, kwargs=kwargs)
 
 
-# Some usefull constants
-EXPR_TAG_START = '{{'
-EXPR_TAG_END = '}}'
-STMT_IF = '!if'
-STMT_ELIF = '!elif'
-STMT_ELSE = '!else'
-STMT_FOR = '!for'
-PYTHON_VARIABLE_START = '!'
-SLOT_DEF = '!def '
-STMT_BASE = '@base'
-HTML_TAG_START = '<'
-COMMENT = '#'
-ESCAPE_CHAR = '\\'
-ATTR_CHAR = ':'
-
-# re
-_tag_re = re.compile(r'''
-                      ^%s\w+$   # tag name
-                      ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
-_attr_re = re.compile(r'''
-                      ^:\w+\s+
-                      ''', re.VERBOSE)
-_text_inline_python = re.compile(r'''
-                      (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
-                      ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
-_python_variable = re.compile(r'''
-                      ^%s\s*[1-9_a-zA-Z, ]+\s*=
-                      ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
-_slot_def = re.compile(r'''
-                      ^%sdef\s+(?P<name>[a-zA-Z_]{1}[a-zA-Z1-9_]*)\(
-                      ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
-_slot_call = re.compile(r'''
-                      ^%s(?P<name>[a-zA-Z_]{1}[a-zA-Z1-9_]*)\(
-                      ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
-
-# Variable's names for generated code
-CTX = '__JAM_CTX__'
-GRAND_NODE = '__JAM_GRAND_NODE'
-TAG_NODE_CLASS = '__JAM_TAG_NODE'
-TEXT_NODE_CLASS = '__JAM_TEXT_NODE'
-ESCAPE_HELLPER = '__JAM_TEXT_ESCAPE'
 
 
 class Parser(object):
+
+    # Some usefull constants
+    EXPR_TAG_START = '{{'
+    EXPR_TAG_END = '}}'
+    STMT_IF = '!if'
+    STMT_ELIF = '!elif'
+    STMT_ELSE = '!else'
+    STMT_FOR = '!for'
+    PYTHON_VARIABLE_START = '!'
+    SLOT_DEF = '!def '
+    STMT_BASE = '@base'
+    HTML_TAG_START = '<'
+    COMMENT = '#'
+    ESCAPE_CHAR = '\\'
+    ATTR_CHAR = ':'
+
+    # re
+    _tag_re = re.compile(r'''
+                          ^%s\w+$   # tag name
+                          ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
+    _attr_re = re.compile(r'''
+                          ^:\w+\s+
+                          ''', re.VERBOSE)
+    _text_inline_python = re.compile(r'''
+                          (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
+                          ''' % (re.escape(EXPR_TAG_START), re.escape(EXPR_TAG_END)), re.VERBOSE)
+    _python_variable = re.compile(r'''
+                          ^%s\s*[1-9_a-zA-Z, ]+\s*=
+                          ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
+    _slot_def = re.compile(r'''
+                          ^%sdef\s+(?P<name>[a-zA-Z_]{1}[a-zA-Z1-9_]*)\(
+                          ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
+    _slot_call = re.compile(r'''
+                          ^%s(?P<name>[a-zA-Z_]{1}[a-zA-Z1-9_]*)\(
+                          ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
+
+    # Variable's names for generated code
+    CTX = '__JAM_CTX__'
+    GRAND_NODE = '__JAM_GRAND_NODE'
+    TAG_NODE_CLASS = '__JAM_TAG_NODE'
+    TEXT_NODE_CLASS = '__JAM_TEXT_NODE'
+    ESCAPE_HELLPER = '__JAM_TEXT_ESCAPE'
+
+    NAMESPACE = {
+        GRAND_NODE:GrandNode,
+        TAG_NODE_CLASS:Tag,
+        TEXT_NODE_CLASS:TextNode,
+        ESCAPE_HELLPER:escape,
+        '__builtins__':__builtins__,
+    }
 
     def __init__(self, base=None, indent=2):
         self.indent = indent
@@ -172,8 +181,8 @@ class Parser(object):
             self.module = base.module
         else:
             self.module = self.ast.Module(body=[
-                self.ast.Assign(targets=[self.ast._name(CTX, 'store')],
-                                value=self.ast._call(self.ast._name(GRAND_NODE)))
+                self.ast.Assign(targets=[self.ast._name(self.CTX, 'store')],
+                                value=self.ast._call(self.ast._name(self.GRAND_NODE)))
             ])
         # current scope
         self.ctx = self.module.body
@@ -224,15 +233,15 @@ class Parser(object):
         '''
         input - file like object
         '''
-        lines = input.readlines()
+        lines = input.split('\n')
         total_lines = len(lines)
         i = 0
         while i < total_lines:
             line = lines[i]
-            line = line.replace('\n', '')
+            #line = line.replace('\n', '')
             striped_line = line.strip()
             self.lineno += 1
-            if striped_line and not striped_line.startswith(COMMENT):
+            if striped_line and not striped_line.startswith(self.COMMENT):
                 line_type = self.get_line_type(striped_line)
                 # if we are in code block or in text block
                 if self.need_next_line(line_type, line):
@@ -259,33 +268,32 @@ class Parser(object):
             i += 1
         if self._text_block:
             self.handle_text(self._text_block)
-        del lines
 
     def reset(self):
         self._in_text_block = False
         self._text_block = []
 
     def get_line_type(self, line):
-        if line.startswith(STMT_FOR):
+        if line.startswith(self.STMT_FOR):
             return 'for'
-        elif _attr_re.match(line):
+        elif self._attr_re.match(line):
             return 'attr'
-        elif line.startswith(STMT_IF):
+        elif line.startswith(self.STMT_IF):
             return 'if'
-        elif line.startswith(STMT_ELIF):
+        elif line.startswith(self.STMT_ELIF):
             return 'elif'
-        elif line.startswith(STMT_ELSE):
+        elif line.startswith(self.STMT_ELSE):
             return 'else'
-        elif _python_variable.match(line):
+        elif self._python_variable.match(line):
             return 'set'
-        elif line.startswith(SLOT_DEF):
+        elif line.startswith(self.SLOT_DEF):
             return 'slot'
-        elif line.startswith(PYTHON_VARIABLE_START):
+        elif line.startswith(self.PYTHON_VARIABLE_START):
             # I guess it is a slot call
             return 'slotcall'
-        elif _tag_re.match(line):
+        elif self._tag_re.match(line):
             return 'tag'
-        elif line.startswith(STMT_BASE):
+        elif line.startswith(self.STMT_BASE):
             return 'base'
         else:
             return 'text'
@@ -339,7 +347,7 @@ class Parser(object):
         # if we are in function, parent name is - 'node'
         parent = 'node'
         if self.level < 1 and self.ctx_type != 'slot':
-            parent = CTX
+            parent = self.CTX
 
         # Parent value name node
         parent = self.ast.Name(id=parent, ctx=ast.Load())
@@ -357,7 +365,7 @@ class Parser(object):
                 self.ast.Assign(
                     targets=[self.ast._name('node', 'store')],
                     value=self.ast._call(
-                        self.ast._name(TAG_NODE_CLASS),
+                        self.ast._name(self.TAG_NODE_CLASS),
                         args=[
                             self.ast.Str(tag_name),
                             self.ast._name('parent')]))],
@@ -374,7 +382,7 @@ class Parser(object):
         # default parent Node name is 'node', but if we are not 0 level
         parent = 'node'
         if self.level < 1 and self.ctx_type != 'slot':
-            parent = CTX
+            parent = self.CTX
 
         line = '\n'.join(text_block)
 
@@ -386,7 +394,7 @@ class Parser(object):
         text_node = self.ast.Assign(
             targets=[self.ast._name('textnode', 'store')],
             value=self.ast._call(
-                self.ast._name(TEXT_NODE_CLASS),
+                self.ast._name(self.TEXT_NODE_CLASS),
                 args=[_text_node, parent]))
         self.ctx.append(text_node)
 
@@ -419,14 +427,14 @@ class Parser(object):
         expr_list = []
         constructed_str = ''
         last_match_end = 0
-        for match in _text_inline_python.finditer(line):
+        for match in self._text_inline_python.finditer(line):
             value = match.groups()[0][2:-2].strip()
             constructed_str += line[last_match_end:match.start()].replace('%', '%%')
             constructed_str += '%s'
             last_match_end = match.end()
             expr = ast.parse(value).body[0].value
             expr_list.append(
-                self.ast._call(self.ast._name(ESCAPE_HELLPER), args=[expr])
+                self.ast._call(self.ast._name(self.ESCAPE_HELLPER), args=[expr])
             )
         # append rest of line
         if last_match_end < len(line):
@@ -446,7 +454,7 @@ class Parser(object):
         self.ctx.append(set)
 
     def handle_slot(self, line):
-        m = _slot_def.match(line)
+        m = self._slot_def.match(line)
         if m:
             slotname = m.groupdict()['name']
             if line[-1] == ':':
@@ -461,7 +469,7 @@ class Parser(object):
             raise TemplateError('Syntax error: %d: %s' % (self.lineno, line))
 
     def handle_slotcall(self, line):
-        m = _slot_call.match(line)
+        m = self._slot_call.match(line)
         if m:
             slotname = m.groupdict()['name']
             # TODO: raise correct exception when slot is absent
@@ -471,7 +479,7 @@ class Parser(object):
             if self.level > 0:
                 parent = 'node'
             else:
-                parent = CTX
+                parent = self.CTX
 
             # Parent value name node
             parent = self.ast.Name(id=parent, ctx=ast.Load())
@@ -542,34 +550,3 @@ class Parser(object):
     def handle_else(self, line):
         last_if = self._if_blocks.pop()
         self.push_stack(last_if.orelse)
-
-
-if __name__ == '__main__':
-    import sys
-    import traceback
-    from sys import argv, stdout
-    input = open(argv[1], 'r')
-    parser = Parser(indent=4)
-    parser.parse(input)
-    tree = parser.tree
-    #print ast.dump(tree)
-    #print ast.dump(parser._slots['slot'])
-    data = {
-        'a':'THIS IS A<`^$#&',
-        'b':False,
-        'c':'THIS IS C',
-        'url_for_static':lambda s: s,
-    }
-    ns = {
-        GRAND_NODE:GrandNode,
-        TAG_NODE_CLASS:Tag,
-        TEXT_NODE_CLASS:TextNode,
-        ESCAPE_HELLPER:escape,
-        '__builtins__':__builtins__,
-    }
-    ns.update(data)
-    #TODO: divide compiling process exceptions from 
-    #      exceptions of execution
-    compiled_souces = compile(tree, argv[1], 'exec')
-    exec compiled_souces in ns
-    ns[CTX].render(stdout)
