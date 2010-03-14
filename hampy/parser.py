@@ -15,6 +15,7 @@ import htmlentitydefs
 # - blocks (inheritance)
 # + python variables (i.e. !a = 'hello')
 # + '%' chars escaping in strings
+# - '\' escaping of ':' '!' '@'
 
 class TemplateError(Exception):
     pass
@@ -138,7 +139,7 @@ class Parser(object):
                           ^%s\w+$   # tag name
                           ''' % (re.escape(HTML_TAG_START),), re.VERBOSE)
     _attr_re = re.compile(r'''
-                          ^:\w+\s+
+                          ^:[a-zA-Z:0-9]+\s+
                           ''', re.VERBOSE)
     _text_inline_python = re.compile(r'''
                           (%s.*?%s)   # inline python expressions, i.e. {{ expr }}
@@ -187,7 +188,6 @@ class Parser(object):
         # current scope
         self.ctx = self.module.body
         # indicates if we are in text block
-        self._in_text_block = False
         self._text_block = []
         # if elif else
         self._if_blocks = []
@@ -243,35 +243,33 @@ class Parser(object):
             self.lineno += 1
             if striped_line and not striped_line.startswith(self.COMMENT):
                 line_type = self.get_line_type(striped_line)
+                level = self._get_level(line)
                 # if we are in code block or in text block
-                if self.need_next_line(line_type, line):
+                if self.need_next_line(line_type, line, level):
                     i += 1
                     continue
 
+                # process all things befor pop context
+                self.preprocess(line_type, line, level)
+
                 # if line is upper level, we pop context
-                level = self._get_level(line)
                 if level < self.level:
                     for y in range(self.level - level):
                         self.pop_stack()
 
-                # if-elif-else, slot are special cases
-                if self.python_statement(line_type, line):
+                # process all things after pop context
+                self.postprocess(line_type, line, level)
+
+                # if-elif-else, slots, texts are special cases
+                if self.special_case(line_type, line):
                     i += 1
                     continue
-                # reset internal buffers
-                self.reset()
                 if hasattr(self, 'handle_'+line_type):
                     nodes = getattr(self, 'handle_'+line_type)(striped_line)
                     self._process_nodes(nodes)
                 else:
                     print 'unknown type: %s' % line_type
             i += 1
-        if self._text_block:
-            self.handle_text(self._text_block)
-
-    def reset(self):
-        self._in_text_block = False
-        self._text_block = []
 
     def get_line_type(self, line):
         if line.startswith(self.STMT_FOR):
@@ -298,34 +296,35 @@ class Parser(object):
         else:
             return 'text'
 
-    def need_next_line(self, line_type, line):
-        level = self._get_level(line)
-        if line_type == 'text':
-            self._in_text_block = True
-            self._text_block.append(line)
-            return True
-        # we must process all text lines stored
-        if self._text_block:
-            self.handle_text(self._text_block)
-            self._text_block = []
+    def need_next_line(self, line_type, line, level):
         if line_type in ('attr', 'set'):
             getattr(self, 'handle_'+line_type)(line.strip())
             return True
+        # if we got slot, we need to switch context and append processed
+        # nodes to slot context
         if line_type == 'slot':
             self.switch_ctx('slot')
             self._slot_level = level
             self.handle_slot(line.strip())
             return True
+        return False
+
+    def preprocess(self, line_type, line, level):
         if (self.ctx_type == 'slot') and (level <= 0):
             self._slot_level = None
             self.switch_ctx()
         if line_type == 'base':
             self.handle_base(line.strip())
-        return False
 
-    def python_statement(self, line_type, line):
+    def postprocess(self, line_type, line, level):
+        pass
+
+    def special_case(self, line_type, line):
         if line_type in ('if', 'elif', 'else', 'slotcall'):
             getattr(self, 'handle_'+line_type)(line.strip())
+            return True
+        if line_type == 'text':
+            self.handle_text(line)
             return True
         return False
 
@@ -378,13 +377,13 @@ class Parser(object):
                 args=[parent]))
         return _function, _function_call
 
-    def handle_text(self, text_block):
+    def handle_text(self, line):
         # default parent Node name is 'node', but if we are not 0 level
         parent = 'node'
         if self.level < 1 and self.ctx_type != 'slot':
             parent = self.CTX
 
-        line = '\n'.join(text_block)
+        #line = '\n'.join(text_block)
 
         # Parent value name node
         parent = self.ast.Name(id=parent, ctx=ast.Load())

@@ -9,6 +9,8 @@ loader = Loader('.')
 
 class Examples(unittest.TestCase):
 
+    vars = dict([(l,l) for l in ['a','b','c','d','e']])
+
     def test_examples(self):
         htmls = glob.glob('examples/*.html')
         results = [r[:-len('.result')]for r in glob.glob('examples/*.result')]
@@ -16,7 +18,7 @@ class Examples(unittest.TestCase):
             if html in results:
                 print html
                 t = loader.get_template(html)
-                self.assertEqual(t.render(), open(html + '.result', 'r').read(), html)
+                self.assertEqual(t.render(**self.vars), open(html + '.result', 'r').read())
 
 
 if __name__ == '__main__':

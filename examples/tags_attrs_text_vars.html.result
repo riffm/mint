@@ -1,0 +1,9 @@
+<tag attr="a-value" attr2="b-value">
+    Content of tag is c
+    <tag2 attr="a-value" attr2="b-value">
+        Content of tag2 is d
+        text text text
+    </tag2>
+    Other content of tag e
+    text text
+</tag>
