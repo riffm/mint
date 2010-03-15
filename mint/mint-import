@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+
+from xml.dom.minidom import parse
+from StringIO import StringIO
+
+class DomWalker(object):
+    def __init__(self, dom, indent=4):
+        self.dom = dom
+        self._level = 0
+        self._indent = indent*' '
+
+    def start(self):
+        self._walk(self.dom.childNodes)
+
+    def _walk(self, node_list):
+        for i in range(node_list.length):
+            node = node_list.item(i)
+            self._process_node(node)
+            if node.hasChildNodes():
+                self._level += 1
+                self._walk(node.childNodes)
+                self._level -= 1
+
+    def _process_node(self, node):
+        if node.nodeType == self.dom.ELEMENT_NODE:
+            print self._level*self._indent, '<%s' % node.tagName
+            attrs = node.attributes
+            for i in range(attrs.length):
+                attr = attrs.item(i)
+                print (self._level + 1) * self._indent, ':%s %s' % (attr.name, attr.value)
+        elif node.nodeType == self.dom.TEXT_NODE:
+            if node.data.strip():
+                for line in node.data.split('\n'):
+                    line = line.strip()
+                    if line:
+                        print self._level*self._indent, line.encode('utf-8')
+                print ''
+
+    def default(self, node):
+        return node.tagName, self._attrs_as_dict(node.attributes)
+
+
+if __name__ == '__main__':
+    from sys import argv
+    dom = parse(argv[1])
+    walker = DomWalker(dom)
+    walker.start()

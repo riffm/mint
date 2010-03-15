@@ -12,7 +12,7 @@
             <p>
         this is content slot c
             </p>
-            Some text
+            Немного русского текста
         </div>
         <div id="footer">
         </div>
