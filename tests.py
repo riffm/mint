@@ -3,7 +3,7 @@
 import os
 import glob
 import unittest
-from hampy import Template, Loader
+from mint import Template, Loader
 
 loader = Loader('.')
 

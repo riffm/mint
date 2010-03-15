@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from hampy import Loader
+from mint import Loader
 from tests import Examples
 
 if __name__ == '__main__':
