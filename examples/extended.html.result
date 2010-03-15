@@ -1,0 +1,19 @@
+<html>
+    <head>
+        <title>
+            a
+        </title>
+    </head>
+    <body>
+        <p>
+        this is first slot d
+        </p>
+        <div id="content">
+            <p>
+        this is content slot c
+            </p>
+        </div>
+        <div id="footer">
+        </div>
+    </body>
+</html>

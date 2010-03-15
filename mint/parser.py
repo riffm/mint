@@ -169,7 +169,7 @@ class Parser(object):
         '__builtins__':__builtins__,
     }
 
-    def __init__(self, base=None, indent=2):
+    def __init__(self, slots=None, indent=2):
         self.indent = indent
         self.__id = 0
         self.ast = AstWrap(self)
@@ -178,23 +178,21 @@ class Parser(object):
         # current tree line number
         self.lineno = 1
         # final module, which stores all prepaired nodes
-        if base is not None:
-            self.module = base.module
-        else:
-            self.module = self.ast.Module(body=[
-                self.ast.Assign(targets=[self.ast._name(self.CTX, 'store')],
-                                value=self.ast._call(self.ast._name(self.GRAND_NODE)))
-            ])
+        self.module = self.ast.Module(body=[
+            self.ast.Assign(targets=[self.ast._name(self.CTX, 'store')],
+                            value=self.ast._call(self.ast._name(self.GRAND_NODE)))
+        ])
         # current scope
         self.ctx = self.module.body
         # indicates if we are in text block
         self._text_block = []
         # if elif else
         self._if_blocks = []
-        self._slots = {}
+        self.slots = slots if slots else {}
         self._slot_level = None
         self.store = {}
         self.ctx_type = 'normal'
+        self.base = None
 
     def push_stack(self, ctx):
         '''
@@ -300,6 +298,9 @@ class Parser(object):
         if line_type in ('attr', 'set'):
             getattr(self, 'handle_'+line_type)(line.strip())
             return True
+        if line_type == 'base':
+            self.handle_base(line.strip())
+            return True
         # if we got slot, we need to switch context and append processed
         # nodes to slot context
         if line_type == 'slot':
@@ -313,8 +314,6 @@ class Parser(object):
         if (self.ctx_type == 'slot') and (level <= 0):
             self._slot_level = None
             self.switch_ctx()
-        if line_type == 'base':
-            self.handle_base(line.strip())
 
     def postprocess(self, line_type, line, level):
         pass
@@ -462,7 +461,7 @@ class Parser(object):
                 line += ': pass'
             slottree = ast.parse(line[1:]).body[0]
             #slot_tree.body = []
-            self._slots[slotname] = slottree
+            self.slots[slotname] = slottree
             self.ctx = slottree.body
         else:
             raise TemplateError('Syntax error: %d: %s' % (self.lineno, line))
@@ -472,7 +471,10 @@ class Parser(object):
         if m:
             slotname = m.groupdict()['name']
             # TODO: raise correct exception when slot is absent
-            slotdef = self._slots[slotname]
+            try:
+                slotdef = self.slots[slotname]
+            except KeyError, err:
+                raise TemplateError('Please provide definition of slot %s' % str(err))
             slotcall = ast.parse(line[1:]).body[0]
             # if we are in function, parent name is - 'node', else 'None'
             if self.level > 0:
@@ -486,6 +488,7 @@ class Parser(object):
             _func_name = '_slot_%d' % self._id()
 
             # def _slot_NUM(parent):
+            #     node = parent
             #     def slotname(*slotargs, **slotkwargs):
             #         ...
             #     slotname(1,'two',a)
@@ -549,3 +552,9 @@ class Parser(object):
     def handle_else(self, line):
         last_if = self._if_blocks.pop()
         self.push_stack(last_if.orelse)
+
+    def handle_base(self, line):
+        # TODO: may be somthing like this @base templates/{{ type }}.html
+        # would be usefull?
+        base_template_name = line[len(self.STMT_BASE):].lstrip()
+        self.base = base_template_name

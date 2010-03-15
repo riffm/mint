@@ -26,29 +26,35 @@ class Template(object):
         self.need_caching = cache
         # ast
         self._tree = None
-        self.parsed = False
         self.compiled_code = None
         self._loader = weakref.proxy(loader) if loader else None
 
     @property
     def tree(self):
         if self._tree is None:
-            tree = self.parse()
+            tree, slots, base = self.parse()
+            # templates inheritance
+            if base is not None:
+                base_template = self._loader.get_template(base)
+                # one base template may have multiple childs, so
+                # every time we need to get base template tree again
+                tree, base_slots, base_base = base_template.parse(slots=slots)
             if self.need_caching:
                 self._tree = tree
             return tree
         else:
             return self._tree
 
-    def parse(self):
-        parser = Parser(indent=4)
+    def parse(self, slots=None):
+        parser = Parser(indent=4, slots=slots)
         parser.parse(self._source)
-        return parser.tree
+        return parser.tree, parser.slots, parser.base
 
     def compile(self):
         compiled_souces = compile(self.tree, self.filename, 'exec')
         if self.need_caching:
             self.compiled_code = compiled_souces
+            self._source = None
         return compiled_souces
 
     def render(self, **kwargs):
@@ -81,7 +87,12 @@ class Loader(object):
             location = path.join(dir, template)
             if path.exists(location) and path.isfile(location):
                 with open(location, 'r') as f:
-                    tmpl = Template(f.read(), cache=self.need_caching, filename=location)
+                    tmpl = Template(f.read(), cache=self.need_caching,
+                                    filename=location, loader=self)
                 self._templates_cache[template] = tmpl
                 return tmpl
         raise TemplateNotFound(template)
+
+    def __add__(self, other):
+        self.dirs = self.dirs + other.dirs
+        return self
