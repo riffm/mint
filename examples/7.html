@@ -1,0 +1,18 @@
+!if a == 'a'
+    <p
+        :id true
+        {{ a }} == 'a'
+!else
+    <p
+        :id false
+
+!if b == 'c'
+    <p
+        :id false
+!elif d == 'c'
+    <p
+        :id false
+!else
+    <p
+        :id true
+        {{ b }} != 'c' and {{ d }} != 'c'

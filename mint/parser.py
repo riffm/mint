@@ -115,8 +115,6 @@ class AstWrap(object):
                          starargs=None, kwargs=kwargs)
 
 
-
-
 class Parser(object):
 
     # Some usefull constants
@@ -343,8 +341,9 @@ class Parser(object):
         tag_name = line[1:]
         # if we are in function, parent name is - 'node'
         parent = 'node'
-        if self.level < 1 and self.ctx_type != 'slot':
-            parent = self.CTX
+        if self.ctx_type != 'slot':
+            if self.level < 1 or (self._if_blocks and self.level == 1):
+                parent = self.CTX
 
         # Parent value name node
         parent = self.ast.Name(id=parent, ctx=ast.Load())

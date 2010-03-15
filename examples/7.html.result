@@ -1,0 +1,6 @@
+<p id="true">
+        a == 'a'
+</p>
+<p id="true">
+        b != 'c' and d != 'c'
+</p>
