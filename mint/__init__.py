@@ -32,13 +32,7 @@ class Template(object):
     @property
     def tree(self):
         if self._tree is None:
-            tree, slots, base = self.parse()
-            # templates inheritance
-            if base is not None:
-                base_template = self._loader.get_template(base)
-                # one base template may have multiple childs, so
-                # every time we need to get base template tree again
-                tree, base_slots, base_base = base_template.parse(slots=slots)
+            tree = self.parse()
             if self.need_caching:
                 self._tree = tree
             return tree
@@ -48,7 +42,14 @@ class Template(object):
     def parse(self, slots=None):
         parser = Parser(indent=4, slots=slots)
         parser.parse(self._source)
-        return parser.tree, parser.slots, parser.base
+        tree = parser.tree
+        # templates inheritance
+        if parser.base is not None:
+            base_template = self._loader.get_template(parser.base)
+            # one base template may have multiple childs, so
+            # every time we need to get base template tree again
+            tree = base_template.parse(slots=parser.slots)
+        return tree
 
     def compile(self):
         compiled_souces = compile(self.tree, self.filename, 'exec')

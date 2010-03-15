@@ -12,6 +12,7 @@
             <p>
         this is content slot c
             </p>
+            Some text
         </div>
         <div id="footer">
         </div>

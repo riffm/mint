@@ -301,8 +301,7 @@ class Parser(object):
         if line_type == 'base':
             self.handle_base(line.strip())
             return True
-        # if we got slot, we need to switch context and append processed
-        # nodes to slot context
+        # if we got slot, we need to switch context 
         if line_type == 'slot':
             self.switch_ctx('slot')
             self._slot_level = level
@@ -460,7 +459,6 @@ class Parser(object):
             else:
                 line += ': pass'
             slottree = ast.parse(line[1:]).body[0]
-            #slot_tree.body = []
             self.slots[slotname] = slottree
             self.ctx = slottree.body
         else:
