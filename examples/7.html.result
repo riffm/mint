@@ -1,5 +1,9 @@
 <p id="true">
         a == 'a'
+    <b>
+                b
+    </b>
+        <b>c</b>
 </p>
 <p id="true">
         b != 'c' and d != 'c'

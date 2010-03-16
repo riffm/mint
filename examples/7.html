@@ -1,7 +1,11 @@
-!if a == 'a'
+!if a == ''
     <p
         :id true
         {{ a }} == 'a'
+        !if True
+            <b
+                {{ b }}
+        <b>{{ c }}</b>
 !else
     <p
         :id false

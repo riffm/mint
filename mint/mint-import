@@ -27,7 +27,7 @@ class DomWalker(object):
             attrs = node.attributes
             for i in range(attrs.length):
                 attr = attrs.item(i)
-                print (self._level + 1) * self._indent, ':%s %s' % (attr.name, attr.value)
+                print (self._level + 1) * self._indent, ':%s %s' % (attr.name.encode('utf-8'), attr.value.encode('utf-8'))
         elif node.nodeType == self.dom.TEXT_NODE:
             if node.data.strip():
                 for line in node.data.split('\n'):
