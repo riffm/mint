@@ -153,7 +153,7 @@ class Parser(object):
                           ''' % re.escape(PYTHON_VARIABLE_START), re.VERBOSE)
 
     # Variable's names for generated code
-    CTX = '__JAM_CTX__'
+    NODE_NAME = '__JAM_NODE__'
     GRAND_NODE = '__JAM_GRAND_NODE'
     TAG_NODE_CLASS = '__JAM_TAG_NODE'
     TEXT_NODE_CLASS = '__JAM_TEXT_NODE'
@@ -177,7 +177,7 @@ class Parser(object):
         self.lineno = 1
         # final module, which stores all prepaired nodes
         self.module = self.ast.Module(body=[
-            self.ast.Assign(targets=[self.ast._name(self.CTX, 'store')],
+            self.ast.Assign(targets=[self.ast._name(self.NODE_NAME, 'store')],
                             value=self.ast._call(self.ast._name(self.GRAND_NODE)))
         ])
         # current scope
@@ -339,14 +339,9 @@ class Parser(object):
 
     def handle_tag(self, line):
         tag_name = line[1:]
-        # if we are in function, parent name is - 'node'
-        parent = 'node'
-        if self.ctx_type != 'slot':
-            if self.level < 1 or (self._if_blocks and self.level == 1):
-                parent = self.CTX
 
         # Parent value name node
-        parent = self.ast.Name(id=parent, ctx=ast.Load())
+        parent = self.ast.Name(id=self.NODE_NAME, ctx=ast.Load())
 
         _func_name = '_tag_%d' % self._id()
 
@@ -359,7 +354,7 @@ class Parser(object):
                 defaults=[]),
             body=[
                 self.ast.Assign(
-                    targets=[self.ast._name('node', 'store')],
+                    targets=[self.ast._name(self.NODE_NAME, 'store')],
                     value=self.ast._call(
                         self.ast._name(self.TAG_NODE_CLASS),
                         args=[
@@ -375,15 +370,8 @@ class Parser(object):
         return _function, _function_call
 
     def handle_text(self, line):
-        # default parent Node name is 'node', but if we are not 0 level
-        parent = 'node'
-        if self.level < 1 and self.ctx_type != 'slot':
-            parent = self.CTX
-
-        #line = '\n'.join(text_block)
-
         # Parent value name node
-        parent = self.ast.Name(id=parent, ctx=ast.Load())
+        parent = self.ast.Name(id=self.NODE_NAME, ctx=ast.Load())
 
         _text_node = self._get_textnode(line)
 
@@ -408,7 +396,7 @@ class Parser(object):
         text_node = self.ast.Expr(
             value = self.ast._call(
                 self.ast.Attribute(
-                    value=self.ast._name('node'),
+                    value=self.ast._name(self.NODE_NAME),
                     attr='set_attr',
                     ctx=ast.Load()),
                 args=[self.ast.Str(name), _text_node]))
@@ -473,14 +461,9 @@ class Parser(object):
             except KeyError, err:
                 raise TemplateError('Please provide definition of slot %s' % str(err))
             slotcall = ast.parse(line[1:]).body[0]
-            # if we are in function, parent name is - 'node', else 'None'
-            if self.level > 0:
-                parent = 'node'
-            else:
-                parent = self.CTX
 
             # Parent value name node
-            parent = self.ast.Name(id=parent, ctx=ast.Load())
+            parent = self.ast.Name(id=self.NODE_NAME, ctx=ast.Load())
 
             _func_name = '_slot_%d' % self._id()
 
@@ -495,7 +478,7 @@ class Parser(object):
                     args = [self.ast._name('parent', ctx='param')],
                     defaults=[]),
                 body=[
-                    self.ast.Assign(targets=[self.ast._name('node', 'store')],
+                    self.ast.Assign(targets=[self.ast._name(self.NODE_NAME, 'store')],
                                     value=self.ast._name('parent')),
                     slotdef, slotcall],
                 decorator_list=[])

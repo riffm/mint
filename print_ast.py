@@ -11,6 +11,7 @@ class Printer(ast.NodeVisitor):
         self._indent = 0
         self._indent_tab = '    '
         self.src = StringIO()
+        self.write = self.src.write
         self._in_args = False
         self._in_if = False
 
@@ -37,6 +38,9 @@ class Printer(ast.NodeVisitor):
 
     def visit_Str(self, node):
         self.src.write('"%s"' % node.s)
+
+    def visit_Num(self, node):
+        self.src.write('%d' % node.n)
 
     def visit_Pass(self, node):
         self.make_tab()
@@ -74,6 +78,20 @@ class Printer(ast.NodeVisitor):
         self.src.write(' ')
         for comp in node.comparators:
             self.visit(comp)
+
+    def visit_For(self, node):
+        self.make_tab()
+        self.write('for ')
+        self.visit(node.target)
+        self.write(' in ')
+        self._in_args = True
+        self.visit(node.iter)
+        self._in_args = False
+        self.write(':\n')
+        self._indent += 1
+        for n in node.body:
+            self.visit(n)
+        self._indent -= 1
 
     #def visit_IfExp(self, node):
         #self.make_tab()

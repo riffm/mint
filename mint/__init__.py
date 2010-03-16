@@ -67,7 +67,7 @@ class Template(object):
         ns.update(kwargs)
         exec code in ns
         out = StringIO()
-        ns[Parser.CTX].render(out)
+        ns[Parser.NODE_NAME].render(out)
         return out.getvalue()
 
 
