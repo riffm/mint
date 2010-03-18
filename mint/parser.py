@@ -257,7 +257,7 @@ class Parser(object):
                 self.postprocess(line_type, line, level)
 
                 # if-elif-else, slots, texts are special cases
-                if self.special_case(line_type, line):
+                if self.special_case(line_type, line, level):
                     i += 1
                     continue
                 if hasattr(self, 'handle_'+line_type):
@@ -315,9 +315,12 @@ class Parser(object):
     def postprocess(self, line_type, line, level):
         pass
 
-    def special_case(self, line_type, line):
-        if line_type in ('if', 'elif', 'else', 'slotcall'):
-            getattr(self, 'handle_'+line_type)(line.strip())
+    def special_case(self, line_type, line, level):
+        if line_type in ('if', 'elif', 'else'):
+            getattr(self, 'handle_'+line_type)(line.strip(), level)
+            return True
+        if line_type == 'slotcall':
+            self.handle_slotcall(line.strip())
             return True
         if line_type == 'text':
             self.handle_text(line)
@@ -504,7 +507,7 @@ class Parser(object):
         _tree.body[0].body = []
         return [_tree.body[0]]
 
-    def handle_if(self, line):
+    def handle_if(self, line, level):
         line = line[1:]
         if line[-1] == ':':
             line = line + ' pass'
@@ -512,12 +515,11 @@ class Parser(object):
             line = line + ': pass'
         if_node = ast.parse(line).body[0]
         if_node.body = []
-        self._if_blocks.append(if_node)
-
+        self._if_blocks.append((if_node, level))
         self.ctx.append(if_node)
         self.push_stack(if_node.body)
 
-    def handle_elif(self, line):
+    def handle_elif(self, line, level):
         line = line[3:]
         if line[-1] == ':':
             line = line + ' pass'
@@ -525,13 +527,32 @@ class Parser(object):
             line = line + ': pass'
         if_node = ast.parse(line).body[0]
         if_node.body = []
-        self._if_blocks[-1].orelse.append(if_node)
-        self._if_blocks.append(if_node)
-        self.push_stack(if_node.body)
+        # need to find last "if" node with similar level
+        # and append this "elif" node to it
+        i = len(self._if_blocks) - 1
+        while i >= 0:
+            n, l = self._if_blocks[i]
+            if l == level:
+                n.orelse.append(if_node)
+                self._if_blocks.append((if_node, level))
+                self.push_stack(if_node.body)
+                return
+            i -= 1
+        raise TemplateError('There is no "if" node for this "elif": %d: %s' % \
+                (self.lineno, line))
 
-    def handle_else(self, line):
-        last_if = self._if_blocks.pop()
-        self.push_stack(last_if.orelse)
+    def handle_else(self, line, level):
+        # need to find last "if" node with similar level
+        # and append this "elif" node to it
+        i = len(self._if_blocks) - 1
+        while i >= 0:
+            n, l = self._if_blocks.pop()
+            if l == level:
+                self.push_stack(n.orelse)
+                return
+            i -= 1
+        raise TemplateError('There is no "if" node for this "else": %d: %s' % \
+                (self.lineno, line))
 
     def handle_base(self, line):
         # TODO: may be somthing like this @base templates/{{ type }}.html
