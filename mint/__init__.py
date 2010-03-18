@@ -9,7 +9,7 @@ import logging
 from os import path
 from StringIO import StringIO
 
-from parser import Parser
+from parser import Parser, TemplateError
 
 logger = logging.getLogger(__name__)
 

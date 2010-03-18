@@ -174,7 +174,7 @@ class Parser(object):
         # parent nodes stack
         self.stack = []
         # current tree line number
-        self.lineno = 1
+        self.lineno = 0
         # final module, which stores all prepaired nodes
         self.module = self.ast.Module(body=[
             self.ast.Assign(targets=[self.ast._name(self.NODE_NAME, 'store')],
@@ -191,6 +191,9 @@ class Parser(object):
         self.store = {}
         self.ctx_type = 'normal'
         self.base = None
+        # this attrs helps to track users mistakes
+        self._last_level = 0
+        self._last_line_type = None
 
     def push_stack(self, ctx):
         '''
@@ -234,18 +237,27 @@ class Parser(object):
         i = 0
         while i < total_lines:
             line = lines[i]
-            #line = line.replace('\n', '')
             striped_line = line.strip()
             self.lineno += 1
             if striped_line and not striped_line.startswith(self.COMMENT):
                 line_type = self.get_line_type(striped_line)
                 level = self._get_level(line)
+
+                # just to be sure there is no template mistakes
+                if not self.check(line_type, level):
+                    raise TemplateError('Incorrect indention level or place of '
+                                        '"%s" node. Line %d: %s' %\
+                                (line_type, self.lineno, striped_line))
+
+                self._last_line_type = line_type
+                self._last_level = level
+
                 # if we are in code block or in text block
                 if self.need_next_line(line_type, line, level):
                     i += 1
                     continue
 
-                # process all things befor pop context
+                # process all things before pop context
                 self.preprocess(line_type, line, level)
 
                 # if line is upper level, we pop context
@@ -326,6 +338,35 @@ class Parser(object):
             self.handle_text(line)
             return True
         return False
+
+    def check(self, line_type, level):
+        '''
+        All template mistakes must be raised from here
+        '''
+        # wrong sequence
+        if line_type == 'attr' and \
+        (self._last_line_type not in ('tag', 'if', 'elif', 'else', 'attr')):
+            return False
+        if line_type == 'base' and self.lineno > 1:
+            return False
+        if self.ctx_type == 'slot' and line_type == 'slot' and level > 0:
+            return False
+
+        # wrong level
+        if level == self._last_level:
+            if line_type == 'attr' and self._last_line_type == 'tag':
+                return False
+            if self._last_line_type in ('if', 'for', 'else', 'elif' ):
+                return False
+        elif level > self._last_level:
+            if self._last_line_type == 'attr':
+                return False
+            if self._last_line_type == 'text' and line_type != 'text':
+                return False
+        else:
+            if line_type == 'attr':
+                return False
+        return True
 
     def _process_nodes(self, nodes):
         # put all nodes to current scope
