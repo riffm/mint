@@ -2,5 +2,7 @@ html:
     head:
         title: {{ title }}
     body:
-        div.id(content).class(center wide):
-            Text text text
+        div:
+            Text text text,
+            text before {{ content['first'] }} and after
+            {{ obj_list[3:7].find() }}

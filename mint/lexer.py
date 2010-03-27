@@ -21,32 +21,37 @@ class TokenWrapper(object):
 
 
 class EOF(object):
+
     def __str__(self):
         return 'eof'
+
     __repr__ = __str__
 
 
 # Tokens
 TOKEN_WORD = TokenWrapper('word', regex_str=r'[a-zA-Z_]+')
+TOKEN_DIGIT = TokenWrapper('digit', regex_str=r'[0-9]+')
 TOKEN_DOT = TokenWrapper('dot', value='.')
-TOKEN_BRACKET_OPEN = TokenWrapper('bracket_open', value='(')
-TOKEN_BRACKET_CLOSE = TokenWrapper('bracket_close', value=')')
+TOKEN_PARENTHESES_OPEN = TokenWrapper('parentheses_open', value='(')
+TOKEN_PARENTHESES_CLOSE = TokenWrapper('parentheses_close', value=')')
+TOKEN_SQUARE_BRACKETS_OPEN = TokenWrapper('square_bracket_open', value='[')
+TOKEN_SQUARE_BRACKETS_CLOSE = TokenWrapper('square_bracket_close', value=']')
+TOKEN_BRACE_OPEN = TokenWrapper('brace_open', value='{')
+TOKEN_BRACE_CLOSE = TokenWrapper('brace_close', value='}')
 TOKEN_PUNCTUATION = TokenWrapper('punctuation', regex_str=r'(,|;)')
 TOKEN_COLON = TokenWrapper('colon', value=':')
-#TOKEN_UNDERSCORE = TokenWrapper('underscore', value='_')
-TOKEN_WHITESPACE = TokenWrapper('whitespace', regex_str=r'\s{1}')
+TOKEN_WHITESPACE = TokenWrapper('whitespace', regex_str=r'\s+')
 TOKEN_QUOTE = TokenWrapper('quote', value="'")
 TOKEN_DOUBLE_QUOTE = TokenWrapper('double_quote', value='"')
-TOKEN_OPERATOR = TokenWrapper('operator', 
+TOKEN_MINUS = TokenWrapper('minus', value='-')
+TOKEN_OPERATOR = TokenWrapper('operator',
                               regex_str=r'(%s)' % '|'.join(
-                                  [re.escape(v) for v in ('+', '-', '*', '**', '^', 
+                                  [re.escape(v) for v in ('+', '*', '**', '^', 
                                                           '=', '==', '<=', '>=' , '<',
                                                           '>', '|')]
                               ))
-TOKEN_NEWLINE = TokenWrapper('newline', regex_str=r'\r\n|\r|\n')
+TOKEN_NEWLINE = TokenWrapper('newline', regex_str=r'(\r\n|\r|\n)')
 TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
-TOKEN_EXPR_START = TokenWrapper('expr_start', value='{{')
-TOKEN_EXPR_END = TokenWrapper('expr_end', value='}}')
 TOKEN_EOF = EOF()
 
 
@@ -67,11 +72,12 @@ class TokensStream(object):
 
             # end of file
             if map.tell() == map.size():
-                yield TOKEN_EOF
+                yield TOKEN_EOF, 'EOF', lineno, 0
                 break
 
             # now we tokinoxe line by line
             line = map.readline()
+            line = line.replace('\n', '')
             while line:
                 line_len = len(line)
                 for token in tokens:
@@ -83,12 +89,15 @@ class TokensStream(object):
                             yield token, value, lineno, pos
                             pos += offset
 
-                # we do not get right token for the rest of the line
+                # we did not get right token for the rest of the line
                 if line_len == len(line):
                     raise ValueError(line)
 
+            yield TOKEN_NEWLINE, '\n', lineno, pos
+
         # all work is done
         map.close()
+
 
 if __name__ == '__main__':
     import sys
