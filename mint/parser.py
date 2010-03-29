@@ -125,8 +125,8 @@ class InitialState(State):
     variantes = [
         (lexer.TOKEN_WORD , 'MayBeTagState'),
         ((lexer.TOKEN_WHITESPACE, lexer.TOKEN_NEWLINE), ),
-        (lexer.TOKEN_BRACE_OPEN, 'MayBeExpressionState'),
-        (AnyToken(), 'TextState'),
+        (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
+        (lexer.tokens, 'TextState'),
     ]
 
 
@@ -150,44 +150,23 @@ class InsideTagState(State):
         (lexer.TOKEN_WHITESPACE, ),
         (lexer.TOKEN_NEWLINE, 'InitialState'),
         (lexer.TOKEN_WORD, 'MayBeTagState'),
-        (lexer.TOKEN_BRACE_OPEN, 'MayBeExpressionState'),
-        (AnyToken(), 'TextState'),
+        (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
+        (lexer.tokens, 'TextState'),
     ]
 
 
 class TextState(State):
     variantes = [
         (lexer.TOKEN_NEWLINE, 'InitialState'),
-        (lexer.TOKEN_BRACE_OPEN, 'MayBeExpressionState'),
-        (AnyToken(exclude=[lexer.TOKEN_BRACE_OPEN]),),
-    ]
-
-
-class MayBeExpressionState(State):
-    variantes = [
-        (lexer.TOKEN_NEWLINE, 'InitialState'),
-        (lexer.TOKEN_BRACE_OPEN, 'ExpressionState'),
-        (AnyToken(exclude=[lexer.TOKEN_NEWLINE]), 'TextState'),
+        (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
+        (lexer.tokens,),
     ]
 
 
 class ExpressionState(State):
     variantes = [
-        (lexer.TOKEN_BRACE_CLOSE, 'MayBeExpressionEndState'),
-        (AnyToken(exclude=[lexer.TOKEN_BRACE_CLOSE]),),
-    ]
-
-
-class MayBeExpressionEndState(State):
-    variantes = [
-        (lexer.TOKEN_BRACE_CLOSE, 'ExpressionEndState'),
-        (AnyToken(exclude=[lexer.TOKEN_BRACE_CLOSE]), 'ExpressionState'),
-    ]
-
-class ExpressionEndState(State):
-    variantes = [
-        (lexer.TOKEN_NEWLINE, 'InitialState'),
-        (AnyToken(), 'TextState'),
+        (lexer.TOKEN_EXPRESSION_END, 'TextState'),
+        (lexer.tokens,),
     ]
 
 
@@ -282,17 +261,28 @@ class Parser(object):
                 last_state = state
 
     def process(self, last_state, state, data):
+        # every time we start new line, we need to 
+        # pop the scope stack
+        if last_state is InitialState:
+            self.handle_InitialState(data[:-1])
+            return data[-1:]
         # text at the end of line
         if last_state is TextState and state is InitialState:
             getattr(self, 'handle_'+last_state.__name__)(data)
             return []
-        if last_state is MayBeExpressionState and state is ExpressionState:
-            self.handle_TextState(data[:-2])
-            return data[-2:]
-        if state in (TagState, ExpressionEndState):
+        if last_state is TextState and state is ExpressionState:
+            self.handle_TextState(data[:-1])
+            return data[-1:]
+        if last_state is ExpressionState and state is not ExpressionState:
+            self.handle_ExpressionState(data)
+            return []
+        if state is TagState:
             getattr(self, 'handle_'+state.__name__)(data)
             return []
         return data
+
+    def handle_InitialState(self, data):
+        print 'InitialState', ''.join((v[1] for v in data ))
 
     def handle_TagState(self, data):
         print 'TagState', ''.join((v[1] for v in data ))
@@ -300,8 +290,8 @@ class Parser(object):
     def handle_TextState(self, data):
         print 'TextState', ''.join((v[1] for v in data ))
 
-    def handle_ExpressionEndState(self, data):
-        print 'ExpressionEndState', ''.join((v[1] for v in data ))
+    def handle_ExpressionState(self, data):
+        print 'ExpressionState', ''.join((v[1] for v in data ))
 
 
 if __name__ == '__main__':
