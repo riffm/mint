@@ -27,8 +27,17 @@ class EOF(object):
 
     __repr__ = __str__
 
+TAG_CHAR = '@'
+STMT_CHAR = '#'
+COMMENT_CHAR = '//'
 
 # Tokens
+TOKEN_TAG_START = TokenWrapper('tag_start', value=TAG_CHAR)
+TOKEN_STATEMENT_IF = TokenWrapper('statement_if', value='%sif ' % STMT_CHAR)
+TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', value='%selif ' % STMT_CHAR)
+TOKEN_STATEMENT_ELSE = TokenWrapper('statement_else', value='%selse:' % STMT_CHAR)
+TOKEN_STATEMENT_FOR = TokenWrapper('statement_for', value='%sfor ' % STMT_CHAR)
+TOKEN_COMMENT = TokenWrapper('comment', value=COMMENT_CHAR)
 TOKEN_WORD = TokenWrapper('word', regex_str=r'[a-zA-Z_]+')
 TOKEN_DIGIT = TokenWrapper('digit', regex_str=r'[0-9]+')
 TOKEN_DOT = TokenWrapper('dot', value='.')

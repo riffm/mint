@@ -90,9 +90,8 @@ class TextNode(Node):
 
 # States
 class State(object):
-
-    # Indicates that this state need stored data
-    # to process. After store is cleared
+    # shows state to deligate to and stop_token
+    deligate = []
 
     @classmethod
     def accept(cls, token):
@@ -123,34 +122,56 @@ def AnyToken(exclude=None):
 
 class InitialState(State):
     variantes = [
-        (lexer.TOKEN_WORD , 'MayBeTagState'),
+        (lexer.TOKEN_TAG_START , 'TagState'),
         ((lexer.TOKEN_WHITESPACE, lexer.TOKEN_NEWLINE), ),
         (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
+        (lexer.TOKEN_BACKSLASH, 'EscapedTextLineState'),
         (lexer.tokens, 'TextState'),
     ]
 
-
-class MayBeTagState(State):
+class EscapedTextLineState(State):
     variantes = [
-        (lexer.TOKEN_COLON, 'TagState'),
-        ((lexer.TOKEN_WHITESPACE, lexer.TOKEN_NEWLINE), 'TextState'),
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.tokens, ),
     ]
 
 
 class TagState(State):
     variantes = [
-        (lexer.TOKEN_WHITESPACE, 'InsideTagState'),
         (lexer.TOKEN_NEWLINE, 'InitialState'),
-        (lexer.TOKEN_WORD, 'MayBeTagState'),
+        (lexer.TOKEN_WORD, 'TagNameState'),
+    ]
+
+class TagNameState(State):
+    variantes = [
+        (lexer.TOKEN_DOT, 'TagAttrState'),
+        (lexer.TOKEN_WHITESPACE, 'EndTagState'),
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
     ]
 
 
-class InsideTagState(State):
+class TagAttrState(State):
     variantes = [
-        (lexer.TOKEN_WHITESPACE, ),
-        (lexer.TOKEN_NEWLINE, 'InitialState'),
-        (lexer.TOKEN_WORD, 'MayBeTagState'),
-        (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
+        (lexer.TOKEN_WORD, 'TagAttrNameState'),
+    ]
+
+
+class TagAttrNameState(State):
+    variantes = [
+        ((lexer.TOKEN_WORD, lexer.TOKEN_COLON, lexer.TOKEN_MINUS), ),
+        (lexer.TOKEN_PARENTHESES_OPEN, 'TagAttrValueState'),
+    ]
+
+
+class TagAttrValueState(State):
+    variantes = [
+        (lexer.TOKEN_PARENTHESES_CLOSE, 'TagNameState'),
+    ]
+
+
+class EndTagState(State):
+    variantes = [
+        (lexer.TOKEN_TAG_START, 'TagState'),
         (lexer.tokens, 'TextState'),
     ]
 
@@ -254,18 +275,17 @@ class Parser(object):
                 break
             state_data.append((token, value, lineno, pos))
             state = last_state.accept(token)
-            # State changed, we need to process data
+            # if state changed, we need to process data
             if state is not last_state:
                 #print last_state.__name__, token, state.__name__#, state_data
                 state_data = self.process(last_state, state, state_data)
                 last_state = state
 
     def process(self, last_state, state, data):
-        # every time we start new line, we need to 
-        # pop the scope stack
-        if last_state is InitialState:
-            self.handle_InitialState(data[:-1])
-            return data[-1:]
+        if last_state is EscapedTextLineState and state is InitialState:
+            # first token - TOKEN_BACKSLASH, last - TOKEN_NEWLINE
+            self.handle_TextState(data[1:])
+            return []
         # text at the end of line
         if last_state is TextState and state is InitialState:
             getattr(self, 'handle_'+last_state.__name__)(data)
@@ -276,13 +296,10 @@ class Parser(object):
         if last_state is ExpressionState and state is not ExpressionState:
             self.handle_ExpressionState(data)
             return []
-        if state is TagState:
-            getattr(self, 'handle_'+state.__name__)(data)
+        if state is EndTagState or (state is InitialState and last_state is TagNameState):
+            self.handle_TagState(data)
             return []
         return data
-
-    def handle_InitialState(self, data):
-        print 'InitialState', ''.join((v[1] for v in data ))
 
     def handle_TagState(self, data):
         print 'TagState', ''.join((v[1] for v in data ))
