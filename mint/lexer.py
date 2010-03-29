@@ -38,6 +38,7 @@ TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', value='%selif ' % STMT_CHA
 TOKEN_STATEMENT_ELSE = TokenWrapper('statement_else', value='%selse:' % STMT_CHAR)
 TOKEN_STATEMENT_FOR = TokenWrapper('statement_for', value='%sfor ' % STMT_CHAR)
 TOKEN_COMMENT = TokenWrapper('comment', value=COMMENT_CHAR)
+TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
 TOKEN_WORD = TokenWrapper('word', regex_str=r'[a-zA-Z_]+')
 TOKEN_DIGIT = TokenWrapper('digit', regex_str=r'[0-9]+')
 TOKEN_DOT = TokenWrapper('dot', value='.')
@@ -60,7 +61,6 @@ TOKEN_OPERATOR = TokenWrapper('operator',
                                                           '>', '|')]
                               ))
 TOKEN_NEWLINE = TokenWrapper('newline', regex_str=r'(\r\n|\r|\n)')
-TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
 TOKEN_EOF = EOF()
 
 
@@ -93,6 +93,9 @@ class TokensStream(object):
                     if line:
                         m = token.regex.match(line)
                         if m:
+                            if token is TOKEN_COMMENT:
+                                line=''
+                                continue
                             offset, value = m.end(), m.group()
                             line = line[offset:]
                             yield token, value, lineno, pos

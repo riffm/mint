@@ -23,16 +23,6 @@ class TemplateError(Exception): pass
 class WrongToken(Exception): pass
 
 
-class GrandNode(object):
-
-    def __init__(self):
-        self.nodes = []
-
-    def render(self, out):
-        for node in self.nodes:
-            node.render(out)
-
-
 UNSAFE_CHARS = '&<>"'
 CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
 UNSAFE_CHARS_ENTITIES = [(k, CHARS_ENTITIES[k]) for k in UNSAFE_CHARS]
@@ -46,47 +36,8 @@ def escape(obj):
     return text
 
 
-class Node(object): pass
+_selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
 
-
-class Tag(Node):
-
-    _selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
-
-    def __init__(self, tag_name, parent):
-        parent.nodes.append(self)
-        self.tag_name = tag_name
-        self.nodes = []
-        self.attrs = []
-        self.closed = tag_name in self._selfclosed
-
-    def set_attr(self, name, value):
-        self.attrs.append((name, value))
-
-    def render(self, out, indent=0):
-        out.write('    '*indent)
-        out.write('<%s' % self.tag_name)
-        for item in self.attrs:
-            out.write(' %s="%s"' % item )
-        if self.closed:
-            out.write('/>\n')
-            return
-        else:
-            out.write('>\n')
-        for node in self.nodes:
-            node.render(out, indent=indent+1)
-        out.write('    '*indent)
-        out.write('</%s>\n' % self.tag_name)
-
-
-class TextNode(Node):
-
-    def __init__(self, text, parent):
-        parent.nodes.append(self)
-        self.text = text
-
-    def render(self, out, indent=0):
-        out.write('%s\n' % self.text)
 
 # States
 class State(object):
@@ -159,13 +110,23 @@ class TagAttrState(State):
 class TagAttrNameState(State):
     variantes = [
         ((lexer.TOKEN_WORD, lexer.TOKEN_COLON, lexer.TOKEN_MINUS), ),
-        (lexer.TOKEN_PARENTHESES_OPEN, 'TagAttrValueState'),
+        (lexer.TOKEN_PARENTHESES_OPEN, 'TagAttrTextState'),
     ]
 
 
-class TagAttrValueState(State):
+class TagAttrTextState(State):
     variantes = [
         (lexer.TOKEN_PARENTHESES_CLOSE, 'TagNameState'),
+        (lexer.TOKEN_EXPRESSION_START, 'TagAttrExpressionState'),
+        (lexer.tokens,),
+    ]
+
+
+class TagAttrExpressionState(State):
+    variantes = [
+        (lexer.TOKEN_PARENTHESES_CLOSE, 'TagNameState'),
+        (lexer.TOKEN_EXPRESSION_END, 'TextState'),
+        (lexer.tokens,),
     ]
 
 
@@ -194,16 +155,9 @@ class ExpressionState(State):
 class Parser(object):
 
     # Variable's names for generated code
-    NODE_NAME = '__MINT_NODE__'
-    GRAND_NODE = '__MINT_GRAND_NODE'
-    TAG_NODE_CLASS = '__MINT_TAG_NODE'
-    TEXT_NODE_CLASS = '__MINT_TEXT_NODE'
     ESCAPE_HELLPER = '__MINT_TEXT_ESCAPE'
 
     NAMESPACE = {
-        GRAND_NODE:GrandNode,
-        TAG_NODE_CLASS:Tag,
-        TEXT_NODE_CLASS:TextNode,
         ESCAPE_HELLPER:escape,
         '__builtins__':__builtins__,
     }
@@ -215,9 +169,6 @@ class Parser(object):
         self.stack = []
         # final module, which stores all prepaired nodes
         self.module = ast.Module(body=[
-            ast.Assign(targets=[ast.Name(id=self.NODE_NAME, ctx=Store())],
-                       value=ast.Call(func=ast.Name(id=self.GRAND_NODE, ctx=Load()),
-                                      args=[], keywords=[], lineno=1, col_offset=0))
         ])
         # current scope
         self.ctx = self.module.body
@@ -282,13 +233,16 @@ class Parser(object):
                 last_state = state
 
     def process(self, last_state, state, data):
+        if last_state is InitialState and data[0][0] is lexer.TOKEN_WHITESPACE:
+            self.handle_WhiteSpace(data[0][1])
+            data = data[1:]
         if last_state is EscapedTextLineState and state is InitialState:
             # first token - TOKEN_BACKSLASH, last - TOKEN_NEWLINE
             self.handle_TextState(data[1:])
             return []
         # text at the end of line
         if last_state is TextState and state is InitialState:
-            getattr(self, 'handle_'+last_state.__name__)(data)
+            self.handle_TextState(data)
             return []
         if last_state is TextState and state is ExpressionState:
             self.handle_TextState(data[:-1])
@@ -309,6 +263,9 @@ class Parser(object):
 
     def handle_ExpressionState(self, data):
         print 'ExpressionState', ''.join((v[1] for v in data ))
+
+    def handle_WhiteSpace(self, data):
+        print 'WhiteSpace', len(data)
 
 
 if __name__ == '__main__':
