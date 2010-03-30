@@ -2,8 +2,7 @@
 
 import re
 import ast
-import functools
-import weakref
+import StringIO
 import htmlentitydefs
 import lexer
 from ast import Load, Store, Param
@@ -133,6 +132,7 @@ class TagAttrExpressionState(State):
 class EndTagState(State):
     variantes = [
         (lexer.TOKEN_TAG_START, 'TagState'),
+        (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
         (lexer.tokens, 'TextState'),
     ]
 
@@ -156,9 +156,12 @@ class Parser(object):
 
     # Variable's names for generated code
     ESCAPE_HELLPER = '__MINT_TEXT_ESCAPE'
+    OUTPUT_NAME = '__MINT__OUTPUT__'
+    OUTPUT_WRITER = '__MINT__OUTPUT__WRITER__'
 
     NAMESPACE = {
         ESCAPE_HELLPER:escape,
+        'StringIO':StringIO.StringIO,
         '__builtins__':__builtins__,
     }
 
@@ -167,9 +170,17 @@ class Parser(object):
         self.__id = 0
         # parent nodes stack
         self.stack = []
+        self.tags_stack = []
+        self.base = None
         # final module, which stores all prepaired nodes
         self.module = ast.Module(body=[
-        ])
+            ast.Assign(targets=[ast.Name(id=self.OUTPUT_NAME, ctx=Store(), lineno=1, col_offset=0)], 
+                       value=ast.Call(func=ast.Name(id='StringIO', ctx=Load(), lineno=1, col_offset=0),
+                                  args=[], keywords=[], starargs=None, kwargs=None, lineno=1, col_offset=0), lineno=1, col_offset=0),
+            ast.Assign(targets=[ast.Name(id=self.OUTPUT_WRITER, ctx=Store(), lineno=1, col_offset=0)], 
+                       value=ast.Attribute(value=ast.Name(id=self.OUTPUT_NAME, ctx=Load(), lineno=1, col_offset=0),
+                                           attr='write', ctx=Load(), lineno=1, col_offset=0),
+                                 lineno=1, col_offset=0)], lineno=1, col_offset=0)
         # current scope
         self.ctx = self.module.body
         # indicates if we are in text block
@@ -193,7 +204,8 @@ class Parser(object):
 
     @property
     def level(self):
-        return len(self.stack)
+        return len(self.tags_stack)
+        #return len(self.stack)
 
     def switch_ctx(self, to='normal'):
         self.ctx_type = to
@@ -222,9 +234,11 @@ class Parser(object):
         state_data = []
         stream = lexer.TokensStream(input)
         for token, value, lineno, pos in stream.tokenize():
+            self.lineno = lineno
+            self.col_offset = pos
             if token is lexer.TOKEN_EOF:
                 break
-            state_data.append((token, value, lineno, pos))
+            state_data.append((token, value))
             state = last_state.accept(token)
             # if state changed, we need to process data
             if state is not last_state:
@@ -232,40 +246,87 @@ class Parser(object):
                 state_data = self.process(last_state, state, state_data)
                 last_state = state
 
+        # if we have data in tags_stack, we need to write it
+        for i in range(len(self.tags_stack)):
+            last_tag_end = self.tags_stack.pop()
+            self._write(last_tag_end)
+
+    def _get_level(self, line):
+        level = len(line)/self.indent
+        if self.ctx_type == 'slot':
+            return level - self._slot_level
+        return level
+
+    def _write(self, data, value_type='text'):
+        if value_type == 'text':
+            value = ast.Str(s=data, lineno=self.lineno, col_offset=self.col_offset)
+        elif value_type == 'expr':
+            value = ast.parse(data).body[0].value
+        expr = ast.Expr(value=ast.Call(func=ast.Name(id=self.OUTPUT_WRITER, ctx=Load(), 
+                                                     lineno=self.lineno, col_offset=self.col_offset),
+                                       args=[value],
+                                       keywords=[], starargs=None, kwargs=None,
+                                       lineno=self.lineno, col_offset=self.col_offset),
+                        lineno=self.lineno, col_offset=self.col_offset)
+        self.ctx.append(expr)
+
     def process(self, last_state, state, data):
         if last_state is InitialState and data[0][0] is lexer.TOKEN_WHITESPACE:
-            self.handle_WhiteSpace(data[0][1])
+            self.set_level(data[0][1])
             data = data[1:]
         if last_state is EscapedTextLineState and state is InitialState:
             # first token - TOKEN_BACKSLASH, last - TOKEN_NEWLINE
-            self.handle_TextState(data[1:])
+            self.add_text(data[1:])
             return []
         # text at the end of line
         if last_state is TextState and state is InitialState:
-            self.handle_TextState(data)
+            self.add_text(data)
             return []
         if last_state is TextState and state is ExpressionState:
-            self.handle_TextState(data[:-1])
+            self.add_text(data[:-1])
             return data[-1:]
         if last_state is ExpressionState and state is not ExpressionState:
-            self.handle_ExpressionState(data)
+            self.add_expression(data[1:-1])
             return []
+        # @div\n
         if state is EndTagState or (state is InitialState and last_state is TagNameState):
-            self.handle_TagState(data)
+            self.add_tag(data[1:])
+            return []
+        # @div.class(
+        if last_state is TagAttrNameState and state is TagAttrTextState:
+            self.add_attr_name(data[:-1])
+            return []
+        # @div.
+        if last_state is TagNameState and state is TagAttrState:
+            self.add_tag(data[1:-1])
             return []
         return data
 
-    def handle_TagState(self, data):
-        print 'TagState', ''.join((v[1] for v in data ))
+    def add_tag(self, data):
+        print 'add tag:', ''.join((v[1] for v in data ))
+        t, val = data[0]
+        self.tags_stack.append(u'</%s>\n' % val)
+        self._write(u'<%s>\n' % val)
 
-    def handle_TextState(self, data):
-        print 'TextState', ''.join((v[1] for v in data ))
+    def add_text(self, data):
+        print 'add text:', ''.join((v[1] for v in data ))
+        t, val = data[0]
+        self._write(u''.join((v[1] for v in data )))
 
-    def handle_ExpressionState(self, data):
-        print 'ExpressionState', ''.join((v[1] for v in data ))
+    def add_expression(self, data):
+        print 'add expression:', ''.join((v[1] for v in data ))
+        self._write(u''.join((v[1] for v in data )).lstrip(), value_type='expr')
 
-    def handle_WhiteSpace(self, data):
-        print 'WhiteSpace', len(data)
+    def add_attr_name(self, data):
+        print 'add attr name:', ''.join((v[1] for v in data ))
+
+    def set_level(self, data):
+        level = self._get_level(data)
+        print 'set indention:', level, self.level
+        if level <= self.level:
+            for y in range(self.level - level):
+                last_tag_end = self.tags_stack.pop()
+                self._write(last_tag_end)
 
 
 if __name__ == '__main__':

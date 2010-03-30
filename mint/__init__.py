@@ -20,9 +20,8 @@ class TemplateNotFound(Exception):
 
 class Template(object):
 
-    def __init__(self, source=None, filename=None, cache=True, loader=None):
-        self.filename = filename if filename else '<string>'
-        self._source = source
+    def __init__(self, sourcefile, cache=True, loader=None):
+        self.sourcefile = sourcefile
         self.need_caching = cache
         # ast
         self._tree = None
@@ -41,7 +40,7 @@ class Template(object):
 
     def parse(self, slots=None):
         parser = Parser(indent=4, slots=slots)
-        parser.parse(self._source)
+        parser.parse(self.sourcefile)
         tree = parser.tree
         # templates inheritance
         if parser.base is not None:
@@ -52,10 +51,9 @@ class Template(object):
         return tree
 
     def compile(self):
-        compiled_souces = compile(self.tree, self.filename, 'exec')
+        compiled_souces = compile(self.tree, self.sourcefile.name, 'exec')
         if self.need_caching:
             self.compiled_code = compiled_souces
-            self._source = None
         return compiled_souces
 
     def render(self, **kwargs):
@@ -66,9 +64,7 @@ class Template(object):
         ns = Parser.NAMESPACE.copy()
         ns.update(kwargs)
         exec code in ns
-        out = StringIO()
-        ns[Parser.NODE_NAME].render(out)
-        return out.getvalue()
+        return ns[Parser.OUTPUT_NAME].getvalue()
 
 
 class Loader(object):
@@ -87,9 +83,8 @@ class Loader(object):
         for dir in self.dirs:
             location = path.join(dir, template)
             if path.exists(location) and path.isfile(location):
-                with open(location, 'r') as f:
-                    tmpl = Template(f.read(), cache=self.need_caching,
-                                    filename=location, loader=self)
+                tmpl = Template(open(location, 'r'), cache=self.need_caching,
+                                loader=self)
                 self._templates_cache[template] = tmpl
                 return tmpl
         raise TemplateNotFound(template)

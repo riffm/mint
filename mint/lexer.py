@@ -66,6 +66,8 @@ TOKEN_EOF = EOF()
 
 tokens = [v for v in locals().values() if isinstance(v, TokenWrapper)]
 
+re_comment = re.compile(r'\s*//')
+
 class TokensStream(object):
 
     def __init__(self, fp):
@@ -87,6 +89,9 @@ class TokensStream(object):
             # now we tokinoxe line by line
             line = map.readline()
             line = line.replace('\n', '')
+            is_comment = re_comment.match(line)
+            if is_comment:
+                continue
             while line:
                 line_len = len(line)
                 for token in tokens:
