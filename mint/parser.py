@@ -115,7 +115,7 @@ class TagAttrNameState(State):
 
 class TagAttrTextState(State):
     variantes = [
-        (lexer.TOKEN_PARENTHESES_CLOSE, 'TagNameState'),
+        (lexer.TOKEN_PARENTHESES_CLOSE, 'EndTagAttrState'),
         (lexer.TOKEN_EXPRESSION_START, 'TagAttrExpressionState'),
         (lexer.tokens,),
     ]
@@ -123,9 +123,17 @@ class TagAttrTextState(State):
 
 class TagAttrExpressionState(State):
     variantes = [
-        (lexer.TOKEN_PARENTHESES_CLOSE, 'TagNameState'),
-        (lexer.TOKEN_EXPRESSION_END, 'TextState'),
+        (lexer.TOKEN_PARENTHESES_CLOSE, 'EndTagAttrState'),
+        (lexer.TOKEN_EXPRESSION_END, 'TagAttrTextState'),
         (lexer.tokens,),
+    ]
+
+
+class EndTagAttrState(State):
+    variantes = [
+        (lexer.TOKEN_DOT, 'TagAttrState'),
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.TOKEN_WHITESPACE, 'TextState'),
     ]
 
 
@@ -166,7 +174,8 @@ class Parser(object):
     }
 
     def __init__(self, slots=None, indent=4):
-        self.indent = indent
+        self.indent_level = indent
+        self.indent = u' ' *indent
         self.__id = 0
         # parent nodes stack
         self.stack = []
@@ -242,17 +251,19 @@ class Parser(object):
             state = last_state.accept(token)
             # if state changed, we need to process data
             if state is not last_state:
-                #print last_state.__name__, token, state.__name__#, state_data
+                print last_state.__name__, token, state.__name__#, state_data
                 state_data = self.process(last_state, state, state_data)
                 last_state = state
 
         # if we have data in tags_stack, we need to write it
-        for i in range(len(self.tags_stack)):
+        total_last = len(self.tags_stack)
+        for i in range(total_last):
+            self._write(self.indent*(total_last - 1 - i))
             last_tag_end = self.tags_stack.pop()
             self._write(last_tag_end)
 
     def _get_level(self, line):
-        level = len(line)/self.indent
+        level = len(line)/self.indent_level
         if self.ctx_type == 'slot':
             return level - self._slot_level
         return level
@@ -271,9 +282,11 @@ class Parser(object):
         self.ctx.append(expr)
 
     def process(self, last_state, state, data):
+        # set level and ctx
         if last_state is InitialState and data[0][0] is lexer.TOKEN_WHITESPACE:
             self.set_level(data[0][1])
             data = data[1:]
+        # \ text text
         if last_state is EscapedTextLineState and state is InitialState:
             # first token - TOKEN_BACKSLASH, last - TOKEN_NEWLINE
             self.add_text(data[1:])
@@ -282,6 +295,7 @@ class Parser(object):
         if last_state is TextState and state is InitialState:
             self.add_text(data)
             return []
+        # text text {{
         if last_state is TextState and state is ExpressionState:
             self.add_text(data[:-1])
             return data[-1:]
@@ -289,28 +303,60 @@ class Parser(object):
             self.add_expression(data[1:-1])
             return []
         # @div\n
-        if state is EndTagState or (state is InitialState and last_state is TagNameState):
-            self.add_tag(data[1:])
+        if state is EndTagState:
+            self.add_tag(data[1:], attrs=False)
             return []
-        # @div.class(
-        if last_state is TagAttrNameState and state is TagAttrTextState:
-            self.add_attr_name(data[:-1])
+        if state is InitialState and last_state is TagNameState:
+            self.add_tag(data[1:], attrs=False)
+            self._write(u'\n')
             return []
         # @div.
         if last_state is TagNameState and state is TagAttrState:
-            self.add_tag(data[1:-1])
+            self.add_tag(data[1:-1], attrs=True)
+            return []
+        # @div.class(
+        if last_state is TagAttrNameState and state is TagAttrTextState:
+            self.add_attr_name(data[0][1])
+            return []
+        # @div.class( text)
+        if last_state is TagAttrTextState and state is EndTagAttrState:
+            self.add_text(data[:-1])
+            # close attr
+            self._write(u'"')
+            return []
+        # @div.class( {{ expr }})
+        if last_state is TagAttrExpressionState and state is EndTagAttrState:
+            self.add_expression(data[1:-1])
+            self._write(u'"')
+            return []
+        # @div.class( text {{ expr }})
+        if last_state is TagAttrTextState and state is TagAttrExpressionState:
+            self.add_text(data[:-1])
+            return []
+        # @div.class({{ expr }} text )
+        if last_state is TagAttrExpressionState and state is TagAttrTextState:
+            self.add_expression(data[1:-1])
+            return []
+        # @div.attr(value)\n
+        if last_state is EndTagAttrState and state is not TagAttrState:
+            self._write(u'>')
+            return []
+        if last_state is EndTagAttrState and state is InitialState:
+            self._write(u'\n')
             return []
         return data
 
-    def add_tag(self, data):
+    def add_tag(self, data, attrs=False):
         print 'add tag:', ''.join((v[1] for v in data ))
         t, val = data[0]
-        self.tags_stack.append(u'</%s>\n' % val)
-        self._write(u'<%s>\n' % val)
+        self.tags_stack.append(u'</%s>' % val)
+        if attrs:
+            self._write(u'<%s' % val)
+        else:
+            self._write(u'<%s>' % val)
 
     def add_text(self, data):
         print 'add text:', ''.join((v[1] for v in data ))
-        t, val = data[0]
         self._write(u''.join((v[1] for v in data )))
 
     def add_expression(self, data):
@@ -318,14 +364,19 @@ class Parser(object):
         self._write(u''.join((v[1] for v in data )).lstrip(), value_type='expr')
 
     def add_attr_name(self, data):
-        print 'add attr name:', ''.join((v[1] for v in data ))
+        print 'add attr name:', data
+        self._write(u' %s="' % data)
 
     def set_level(self, data):
         level = self._get_level(data)
-        print 'set indention:', level, self.level
+        self._write(data)
+        #print 'set indention:', level, self.level
         if level <= self.level:
+            total_pops = level - self.level
             for y in range(self.level - level):
                 last_tag_end = self.tags_stack.pop()
+                # indention
+                #self._write(self.indent * (total_pops - 1 - y + level))
                 self._write(last_tag_end)
 
 
