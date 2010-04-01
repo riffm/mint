@@ -29,6 +29,8 @@ UNSAFE_CHARS_ENTITIES.append(("'",'&#39;'))
 
 
 def escape(obj):
+    if hasattr(obj, '__html__'):
+        return obj.__html__()
     text = str(obj)
     for k, v in UNSAFE_CHARS_ENTITIES:
         text = text.replace(k, v)
@@ -36,6 +38,76 @@ def escape(obj):
 
 
 _selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
+
+
+class TextNode(object):
+
+    def __init__(self, value):
+        self.value = escape(value)
+
+    def to_ast(self):
+        print self.value
+
+    def merge(self, next, nodes_list):
+        if isinstance(next, self.__class__):
+            self.value += next.value
+            nodes_list.append(self)
+        else:
+            nodes_list.append(self)
+            nodes_list.append(next)
+
+
+class ExprNode(object):
+
+    def __init__(self, value):
+        self.value = value
+
+    def to_ast(self):
+        print self.value
+
+    def merge(self, next, nodes_list):
+        nodes_list.append(self)
+        nodes_list.append(next)
+
+
+class TagNode(object):
+
+    def __init__(self, name):
+        self.name = TextNode(name)
+        self.nodes = []
+        self._attrs = {}
+
+    def set_attr(self, name, value):
+        self._attrs.setdefault(name, []).append(value)
+
+    def to_list(self, nodes_list=None):
+        if nodes_list is None:
+            nodes_list = []
+
+        # open tag
+        nodes_list.append(TextNode(u'<%s' % self.name))
+        if self._attrs:
+            for k, values in self._attrs:
+                nodes_list.append(TextNode(u' %s="' % k))
+                for v in values:
+                    nodes_list.append(v)
+                nodes_list.append(TextNode(u'"'))
+        if self.name in _selfclosed:
+            nodes_list.append(TextNode(u' />'))
+            if self.nodes:
+                raise TemplateError('Tag "%s" can not have childnodes' % self.name)
+            return
+        else:
+            nodes_list.append(TextNode(u'>'))
+
+        # collect other nodes
+        for node in self.nodes:
+            if isinstance(node, self.__class__):
+                node.to_list(nodes_list=nodes_list)
+            else:
+                nodes_list.append(node)
+        # close tag
+        nodes_list.append(TextNode(u'</%s>' % self.name))
 
 
 # States
@@ -372,11 +444,8 @@ class Parser(object):
         self._write(data)
         #print 'set indention:', level, self.level
         if level <= self.level:
-            total_pops = level - self.level
             for y in range(self.level - level):
                 last_tag_end = self.tags_stack.pop()
-                # indention
-                #self._write(self.indent * (total_pops - 1 - y + level))
                 self._write(last_tag_end)
 
 
