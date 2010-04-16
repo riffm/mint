@@ -167,16 +167,7 @@ class Parser(object):
         self.stack = []
         self.base = None
         # final module, which stores all prepaired nodes
-        self.module = ast.Module(body=[
-            ast.Assign(targets=[ast.Name(id=self.OUTPUT_NAME, ctx=Store(), lineno=1, col_offset=0)], 
-                       value=ast.Call(func=ast.Name(id='StringIO', ctx=Load(), lineno=1, col_offset=0),
-                                  args=[], keywords=[], starargs=None, kwargs=None, lineno=1, col_offset=0), lineno=1, col_offset=0),
-            ast.Assign(targets=[ast.Name(id=self.OUTPUT_WRITER, ctx=Store(), lineno=1, col_offset=0)], 
-                       value=ast.Attribute(value=ast.Name(id=self.OUTPUT_NAME, ctx=Load(), lineno=1, col_offset=0),
-                                           attr='write', ctx=Load(), lineno=1, col_offset=0),
-                                 lineno=1, col_offset=0)], lineno=1, col_offset=0)
         # current scope
-        #self.ctx = self.module.body
         self.ctx = TagNode('') # root tag node
         # indicates if we are in text block
         self._text_block = []
@@ -191,12 +182,12 @@ class Parser(object):
         '''
         ctx - scope (list actualy)
         '''
-        print 'push: ', ctx
+        #print 'push: ', ctx
         self.stack.append(self.ctx)
         self.ctx = ctx
 
     def pop_stack(self):
-        print 'pop:  ', self.ctx
+        #print 'pop:  ', self.ctx
         self.ctx = self.stack.pop()
 
     @property
@@ -220,7 +211,19 @@ class Parser(object):
 
     @property
     def tree(self):
-        return self.module
+        module_tree = ast.Module(body=[
+            ast.Assign(targets=[ast.Name(id=self.OUTPUT_NAME, ctx=Store(), lineno=1, col_offset=0)], 
+                       value=ast.Call(func=ast.Name(id='StringIO', ctx=Load(), lineno=1, col_offset=0),
+                                      args=[], keywords=[], starargs=None, kwargs=None, lineno=1, col_offset=0),
+                       lineno=1, col_offset=0),
+            ast.Assign(targets=[ast.Name(id=self.OUTPUT_WRITER, ctx=Store(), lineno=1, col_offset=0)], 
+                       value=ast.Attribute(value=ast.Name(id=self.OUTPUT_NAME, ctx=Load(), lineno=1, col_offset=0),
+                                           attr='write', ctx=Load(), lineno=1, col_offset=0),
+                                 lineno=1, col_offset=0)], lineno=1, col_offset=0)
+        nodes_list = self.ctx.to_list()
+        for i in merged_nodes(nodes_list):
+            module_tree.body.append(i.to_ast(self.OUTPUT_WRITER))
+        return module_tree
 
     def parse(self, input):
         '''
@@ -250,19 +253,6 @@ class Parser(object):
         if self.ctx_type == 'slot':
             return level - self._slot_level
         return level
-
-    def _write(self, data, value_type='text'):
-        if value_type == 'text':
-            value = ast.Str(s=data, lineno=self.lineno, col_offset=self.col_offset)
-        elif value_type == 'expr':
-            value = ast.parse(data).body[0].value
-        expr = ast.Expr(value=ast.Call(func=ast.Name(id=self.OUTPUT_WRITER, ctx=Load(), 
-                                                     lineno=self.lineno, col_offset=self.col_offset),
-                                       args=[value],
-                                       keywords=[], starargs=None, kwargs=None,
-                                       lineno=self.lineno, col_offset=self.col_offset),
-                        lineno=self.lineno, col_offset=self.col_offset)
-        self.ctx.append(expr)
 
     def process(self, last_state, state, data):
         # set level and ctx
@@ -337,11 +327,13 @@ class Parser(object):
 
     def add_text(self, data):
         #print 'add text:', ''.join((v[1] for v in data ))
-        self.ctx.nodes.append(TextNode(u''.join([v[1] for v in data ])))
+        self.ctx.nodes.append(TextNode(u''.join([v[1] for v in data ]), 
+                                       lineno=self.lineno, col_offset=self.col_offset))
 
     def add_expression(self, data):
         #print 'add expression:', ''.join((v[1] for v in data ))
-        self.ctx.nodes.append(ExprNode(u''.join([v[1] for v in data ]).lstrip()))
+        self.ctx.nodes.append(ExprNode(u''.join([v[1] for v in data ]).lstrip(), 
+                              lineno=self.lineno, col_offset=self.col_offset))
 
     def add_attr_name(self, data):
         #print 'add attr name:', data
@@ -352,7 +344,7 @@ class Parser(object):
     def set_level(self, data):
         level = self._get_level(data)
         self.ctx.nodes.append(TextNode(data))
-        print 'set indention:', level, self.level
+        #print 'set indention:', level, self.level
         if level <= self.level:
             for y in range(self.level - level):
                 self.pop_stack()
@@ -363,6 +355,3 @@ if __name__ == '__main__':
     file_name = sys.argv[1]
     parser = Parser()
     parser.parse(open(file_name, 'r'))
-    nodes_list = parser.ctx.to_list()
-    for i in make_list(nodes_list):
-        print i

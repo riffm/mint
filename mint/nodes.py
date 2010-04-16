@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import htmlentitydefs
+import ast
+from ast import Load, Store, Param
 
 
 UNSAFE_CHARS = '&<>"'
@@ -20,31 +22,45 @@ def escape(obj):
 
 class TextNode(object):
 
-    def __init__(self, value, escaping=True):
+    def __init__(self, value, escaping=True, lineno=None, col_offset=None):
         if escaping:
             self.value = escape(value)
         else:
             self.value = value
+        self.lineno = lineno if lineno else 1
+        self.col_offset = col_offset if col_offset else 1
 
-    def to_ast(self):
-        pass
+    def to_ast(self, writer_name):
+        value = ast.Str(s=self.value, lineno=self.lineno, col_offset=self.col_offset)
+        return ast.Expr(value=ast.Call(func=ast.Name(id=writer_name, ctx=Load(), 
+                                                     lineno=self.lineno, col_offset=self.col_offset),
+                                       args=[value],
+                                       keywords=[], starargs=None, kwargs=None,
+                                       lineno=self.lineno, col_offset=self.col_offset),
+                        lineno=self.lineno, col_offset=self.col_offset)
 
     def __repr__(self):
         return '%s("%s")' % (self.__class__.__name__, self.value)
-        #return 'write("%s")' % self.value
 
 
 class ExprNode(object):
 
-    def __init__(self, value):
+    def __init__(self, value, lineno=None, col_offset=None):
         self.value = value
+        self.lineno = lineno
+        self.col_offset = col_offset
 
-    def to_ast(self):
-        pass
+    def to_ast(self, writer_name):
+        value = ast.parse(self.value).body[0].value
+        return ast.Expr(value=ast.Call(func=ast.Name(id=writer_name, ctx=Load(), 
+                                                     lineno=self.lineno, col_offset=self.col_offset),
+                                       args=[value],
+                                       keywords=[], starargs=None, kwargs=None,
+                                       lineno=self.lineno, col_offset=self.col_offset),
+                        lineno=self.lineno, col_offset=self.col_offset)
 
     def __repr__(self):
         return '%s(%s)' % (self.__class__.__name__, self.value)
-        #return 'write(%s)' % self.value
 
 
 class AttrNode(object):
@@ -125,7 +141,7 @@ def merge(a, b):
     return b
 
 
-def make_list(nodes_list):
+def merged_nodes(nodes_list):
     last = None
     for n in nodes_list:
         if last is not None:
