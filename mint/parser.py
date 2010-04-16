@@ -3,8 +3,8 @@
 import re
 import ast
 import StringIO
-import htmlentitydefs
 import lexer
+from nodes import *
 from ast import Load, Store, Param
 
 
@@ -22,92 +22,6 @@ class TemplateError(Exception): pass
 class WrongToken(Exception): pass
 
 
-UNSAFE_CHARS = '&<>"'
-CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
-UNSAFE_CHARS_ENTITIES = [(k, CHARS_ENTITIES[k]) for k in UNSAFE_CHARS]
-UNSAFE_CHARS_ENTITIES.append(("'",'&#39;'))
-
-
-def escape(obj):
-    if hasattr(obj, '__html__'):
-        return obj.__html__()
-    text = str(obj)
-    for k, v in UNSAFE_CHARS_ENTITIES:
-        text = text.replace(k, v)
-    return text
-
-
-_selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
-
-
-class TextNode(object):
-
-    def __init__(self, value):
-        self.value = escape(value)
-
-    def to_ast(self):
-        print self.value
-
-    def merge(self, next, nodes_list):
-        if isinstance(next, self.__class__):
-            self.value += next.value
-            nodes_list.append(self)
-        else:
-            nodes_list.append(self)
-            nodes_list.append(next)
-
-
-class ExprNode(object):
-
-    def __init__(self, value):
-        self.value = value
-
-    def to_ast(self):
-        print self.value
-
-    def merge(self, next, nodes_list):
-        nodes_list.append(self)
-        nodes_list.append(next)
-
-
-class TagNode(object):
-
-    def __init__(self, name):
-        self.name = TextNode(name)
-        self.nodes = []
-        self._attrs = {}
-
-    def set_attr(self, name, value):
-        self._attrs.setdefault(name, []).append(value)
-
-    def to_list(self, nodes_list=None):
-        if nodes_list is None:
-            nodes_list = []
-
-        # open tag
-        nodes_list.append(TextNode(u'<%s' % self.name))
-        if self._attrs:
-            for k, values in self._attrs:
-                nodes_list.append(TextNode(u' %s="' % k))
-                for v in values:
-                    nodes_list.append(v)
-                nodes_list.append(TextNode(u'"'))
-        if self.name in _selfclosed:
-            nodes_list.append(TextNode(u' />'))
-            if self.nodes:
-                raise TemplateError('Tag "%s" can not have childnodes' % self.name)
-            return
-        else:
-            nodes_list.append(TextNode(u'>'))
-
-        # collect other nodes
-        for node in self.nodes:
-            if isinstance(node, self.__class__):
-                node.to_list(nodes_list=nodes_list)
-            else:
-                nodes_list.append(node)
-        # close tag
-        nodes_list.append(TextNode(u'</%s>' % self.name))
 
 
 # States
@@ -251,7 +165,6 @@ class Parser(object):
         self.__id = 0
         # parent nodes stack
         self.stack = []
-        self.tags_stack = []
         self.base = None
         # final module, which stores all prepaired nodes
         self.module = ast.Module(body=[
@@ -263,7 +176,8 @@ class Parser(object):
                                            attr='write', ctx=Load(), lineno=1, col_offset=0),
                                  lineno=1, col_offset=0)], lineno=1, col_offset=0)
         # current scope
-        self.ctx = self.module.body
+        #self.ctx = self.module.body
+        self.ctx = TagNode('') # root tag node
         # indicates if we are in text block
         self._text_block = []
         # if elif else
@@ -277,16 +191,17 @@ class Parser(object):
         '''
         ctx - scope (list actualy)
         '''
+        print 'push: ', ctx
         self.stack.append(self.ctx)
         self.ctx = ctx
 
     def pop_stack(self):
+        print 'pop:  ', self.ctx
         self.ctx = self.stack.pop()
 
     @property
     def level(self):
-        return len(self.tags_stack)
-        #return len(self.stack)
+        return len(self.stack)
 
     def switch_ctx(self, to='normal'):
         self.ctx_type = to
@@ -323,16 +238,12 @@ class Parser(object):
             state = last_state.accept(token)
             # if state changed, we need to process data
             if state is not last_state:
-                print last_state.__name__, token, state.__name__#, state_data
+                #print last_state.__name__, token, state.__name__#, state_data
                 state_data = self.process(last_state, state, state_data)
                 last_state = state
 
-        # if we have data in tags_stack, we need to write it
-        total_last = len(self.tags_stack)
-        for i in range(total_last):
-            self._write(self.indent*(total_last - 1 - i))
-            last_tag_end = self.tags_stack.pop()
-            self._write(last_tag_end)
+        while self.stack:
+            self.pop_stack()
 
     def _get_level(self, line):
         level = len(line)/self.indent_level
@@ -376,15 +287,15 @@ class Parser(object):
             return []
         # @div\n
         if state is EndTagState:
-            self.add_tag(data[1:], attrs=False)
+            self.add_tag(data[1:])
             return []
         if state is InitialState and last_state is TagNameState:
-            self.add_tag(data[1:], attrs=False)
-            self._write(u'\n')
+            self.add_tag(data[1:])
+            self.ctx.nodes.append(TextNode(u'\n'))
             return []
         # @div.
         if last_state is TagNameState and state is TagAttrState:
-            self.add_tag(data[1:-1], attrs=True)
+            self.add_tag(data[1:-1])
             return []
         # @div.class(
         if last_state is TagAttrNameState and state is TagAttrTextState:
@@ -393,13 +304,13 @@ class Parser(object):
         # @div.class( text)
         if last_state is TagAttrTextState and state is EndTagAttrState:
             self.add_text(data[:-1])
-            # close attr
-            self._write(u'"')
+            # we have attr node last in stack
+            self.pop_stack()
             return []
         # @div.class( {{ expr }})
         if last_state is TagAttrExpressionState and state is EndTagAttrState:
             self.add_expression(data[1:-1])
-            self._write(u'"')
+            self.pop_stack()
             return []
         # @div.class( text {{ expr }})
         if last_state is TagAttrTextState and state is TagAttrExpressionState:
@@ -411,42 +322,40 @@ class Parser(object):
             return []
         # @div.attr(value)\n
         if last_state is EndTagAttrState and state is not TagAttrState:
-            self._write(u'>')
             return []
         if last_state is EndTagAttrState and state is InitialState:
-            self._write(u'\n')
+            self.ctx.nodes.append(TextNode(u'\n'))
             return []
         return data
 
-    def add_tag(self, data, attrs=False):
-        print 'add tag:', ''.join((v[1] for v in data ))
+    def add_tag(self, data):
+        #print 'add tag:', ''.join((v[1] for v in data ))
         t, val = data[0]
-        self.tags_stack.append(u'</%s>' % val)
-        if attrs:
-            self._write(u'<%s' % val)
-        else:
-            self._write(u'<%s>' % val)
+        node = TagNode(val)
+        self.ctx.nodes.append(node)
+        self.push_stack(node)
 
     def add_text(self, data):
-        print 'add text:', ''.join((v[1] for v in data ))
-        self._write(u''.join((v[1] for v in data )))
+        #print 'add text:', ''.join((v[1] for v in data ))
+        self.ctx.nodes.append(TextNode(u''.join([v[1] for v in data ])))
 
     def add_expression(self, data):
-        print 'add expression:', ''.join((v[1] for v in data ))
-        self._write(u''.join((v[1] for v in data )).lstrip(), value_type='expr')
+        #print 'add expression:', ''.join((v[1] for v in data ))
+        self.ctx.nodes.append(ExprNode(u''.join([v[1] for v in data ]).lstrip()))
 
     def add_attr_name(self, data):
-        print 'add attr name:', data
-        self._write(u' %s="' % data)
+        #print 'add attr name:', data
+        attr = AttrNode(data)
+        self.ctx.set_attr(attr)
+        self.push_stack(attr)
 
     def set_level(self, data):
         level = self._get_level(data)
-        self._write(data)
-        #print 'set indention:', level, self.level
+        self.ctx.nodes.append(TextNode(data))
+        print 'set indention:', level, self.level
         if level <= self.level:
             for y in range(self.level - level):
-                last_tag_end = self.tags_stack.pop()
-                self._write(last_tag_end)
+                self.pop_stack()
 
 
 if __name__ == '__main__':
@@ -454,3 +363,6 @@ if __name__ == '__main__':
     file_name = sys.argv[1]
     parser = Parser()
     parser.parse(open(file_name, 'r'))
+    nodes_list = parser.ctx.to_list()
+    for i in make_list(nodes_list):
+        print i
