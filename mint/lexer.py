@@ -10,9 +10,9 @@ class TokenWrapper(object):
         assert value or regex_str, 'Provide token text value or regex'
         self.token = intern(token)
         if regex_str is not None:
-            self.regex = re.compile(regex_str)
+            self.regex = re.compile(regex_str, re.U)
         else:
-            self.regex = re.compile(r'%s' % re.escape(value))
+            self.regex = re.compile(r'%s' % re.escape(value), re.U)
 
     def __str__(self):
         return self.token
@@ -39,7 +39,7 @@ TOKEN_STATEMENT_ELSE = TokenWrapper('statement_else', value='%selse:' % STMT_CHA
 TOKEN_STATEMENT_FOR = TokenWrapper('statement_for', value='%sfor ' % STMT_CHAR)
 TOKEN_COMMENT = TokenWrapper('comment', value=COMMENT_CHAR)
 TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
-TOKEN_WORD = TokenWrapper('word', regex_str=r'[a-zA-Z_]+')
+TOKEN_WORD = TokenWrapper('word', regex_str=r'\w+')
 TOKEN_DIGIT = TokenWrapper('digit', regex_str=r'[0-9]+')
 TOKEN_DOT = TokenWrapper('dot', value='.')
 TOKEN_PARENTHESES_OPEN = TokenWrapper('parentheses_open', value='(')
@@ -87,7 +87,7 @@ class TokensStream(object):
                 break
 
             # now we tokinoxe line by line
-            line = map.readline()
+            line = map.readline().decode('utf-8')
             line = line.replace('\n', '')
             is_comment = re_comment.match(line)
             if is_comment:
