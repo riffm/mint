@@ -21,12 +21,14 @@ def escape(obj):
 
 
 class TextNode(object):
+    '''Simple node, represents text'''
 
     def __init__(self, value, escaping=True, lineno=None, col_offset=None):
         if escaping:
             self.value = escape(value)
         else:
             self.value = value
+        # default values to lineno and col_offset
         self.lineno = lineno if lineno else 1
         self.col_offset = col_offset if col_offset else 1
 
@@ -44,6 +46,7 @@ class TextNode(object):
 
 
 class ExprNode(object):
+    '''Simple node, represents python expression'''
 
     def __init__(self, value, lineno=None, col_offset=None):
         self.value = value
@@ -82,7 +85,15 @@ class AttrNode(object):
     def __repr__(self):
         return '%s(%s=%r)' % (self.__class__.__name__, self.name, self.nodes)
 
+
 class TagNode(object):
+    '''This class represents tag and can store tag attributes
+    and other nodes inside.
+
+    to_list() returns list of simple nodes like TextNode, ExprNode
+    List items are not merged, so you need to use merged_nodes(), to
+    get merged nodes generator.
+    '''
 
     _selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
 
@@ -93,6 +104,8 @@ class TagNode(object):
         self._attrs_if = {}
 
     def set_attr(self, node):
+        #TODO: we need to be sure that user did not set same attr
+        # twice
         self._attrs.append(node)
 
     def set_attr_if(self, expr, name, value):
@@ -142,6 +155,8 @@ def merge(a, b):
 
 
 def merged_nodes(nodes_list):
+    '''Returns generator of merged nodes.
+    nodes_list - list of simple nodes.'''
     last = None
     for n in nodes_list:
         if last is not None:
