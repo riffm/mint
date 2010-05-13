@@ -62,6 +62,7 @@ class InitialState(State):
         ((lexer.TOKEN_WHITESPACE, lexer.TOKEN_NEWLINE), ),
         (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
         (lexer.TOKEN_BACKSLASH, 'EscapedTextLineState'),
+        (lexer.TOKEN_STATEMENT_FOR, 'StatementForState'),
         (lexer.tokens, 'TextState'),
     ]
 
@@ -142,6 +143,13 @@ class TextState(State):
 class ExpressionState(State):
     variantes = [
         (lexer.TOKEN_EXPRESSION_END, 'TextState'),
+        (lexer.tokens,),
+    ]
+
+
+class StatementForState(State):
+    variantes = [
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
         (lexer.tokens,),
     ]
 
@@ -316,6 +324,9 @@ class Parser(object):
         if last_state is EndTagAttrState and state is InitialState:
             self.ctx.nodes.append(TextNode(u'\n'))
             return []
+        if last_state is StatementForState and state is InitialState:
+            self.add_statement_for(data)
+            return []
         return data
 
     def add_tag(self, data):
@@ -348,6 +359,12 @@ class Parser(object):
         if level <= self.level:
             for y in range(self.level - level):
                 self.pop_stack()
+
+    def add_statement_for(self, data):
+        node = ForStatementNode(u''.join([v[1] for v in data ]), 
+                                lineno=self.lineno, col_offset=self.col_offset)
+        self.ctx.nodes.append(node)
+        self.push_stack(node)
 
 
 if __name__ == '__main__':
