@@ -159,7 +159,7 @@ class ForStatementNode(object):
         self.nodes = []
 
     def to_ast(self, writer_name):
-        nodes = self.to_list()
+        nodes = nodes_to_list(self.nodes)
         expr = self.expr.strip()
         if expr[-1] != ':':
             expr += ':'
@@ -173,21 +173,63 @@ class ForStatementNode(object):
             tree.body.append(node.to_ast(writer_name))
         return tree
 
-    def to_list(self, nodes_list=None):
-        if nodes_list is None:
-            nodes_list = []
-        for n in self.nodes:
-            if isinstance(n, TagNode):
-                n.to_list(nodes_list=nodes_list)
-            else:
-                nodes_list.append(n)
-        return nodes_list
-
-
-
     def __repr__(self):
         return '%s(%r, %r, %r)' % (self.__class__.__name__, self.expr,
                                    self.lineno, self.col_offset)
+
+
+class IfStatementNode(object):
+
+    def __init__(self, expr, lineno, col_offset, orelse=None):
+        self.expr = expr
+        self.lineno = lineno
+        self.col_offset = col_offset
+        self.orelse = orelse if orelse is not None else []
+        self.nodes = []
+
+    def to_ast(self, writer_name):
+        expr = self.expr.strip()
+        if expr[-1] != ':':
+            expr += ':'
+        if expr.startswith('#'):
+            expr = expr[1:]
+        if expr.startswith('elif'):
+            expr = expr[2:]
+        expr = expr + ' pass'
+        tree = ast.parse(expr).body[0]
+        # clear tree body from Pass()
+        tree.body = []
+        nodes = nodes_to_list(self.nodes)
+        for node in merged_nodes(nodes):
+            tree.body.append(node.to_ast(writer_name))
+        for node in merged_nodes(nodes_to_list(self.orelse)):
+            if isinstance(node, self.__class__):
+                tree.orelse.append(node.to_ast(writer_name))
+            elif isinstance(node, StatementElse):
+                for n in merged_nodes(nodes_to_list(node.nodes)):
+                    tree.orelse.append(n.to_ast(writer_name))
+        return tree
+
+    def __repr__(self):
+        return '%s(%r, %r, %r, orelse=%r)' % (self.__class__.__name__, self.expr,
+                                              self.lineno, self.col_offset, self.orelse)
+
+
+class StatementElse(object):
+
+    def __init__(self):
+        self.nodes = []
+
+
+def nodes_to_list(nodes, nodes_list=None):
+    if nodes_list is None:
+        nodes_list = []
+    for n in nodes:
+        if isinstance(n, TagNode):
+            n.to_list(nodes_list=nodes_list)
+        else:
+            nodes_list.append(n)
+    return nodes_list
 
 
 def merge(a, b):

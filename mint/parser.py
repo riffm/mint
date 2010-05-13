@@ -63,6 +63,9 @@ class InitialState(State):
         (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
         (lexer.TOKEN_BACKSLASH, 'EscapedTextLineState'),
         (lexer.TOKEN_STATEMENT_FOR, 'StatementForState'),
+        (lexer.TOKEN_STATEMENT_IF, 'StatementIfState'),
+        (lexer.TOKEN_STATEMENT_ELIF, 'StatementElifState'),
+        (lexer.TOKEN_STATEMENT_ELSE, 'StatementElseState'),
         (lexer.tokens, 'TextState'),
     ]
 
@@ -148,6 +151,27 @@ class ExpressionState(State):
 
 
 class StatementForState(State):
+    variantes = [
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.tokens,),
+    ]
+
+
+class StatementIfState(State):
+    variantes = [
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.tokens,),
+    ]
+
+
+class StatementElifState(State):
+    variantes = [
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.tokens,),
+    ]
+
+
+class StatementElseState(State):
     variantes = [
         (lexer.TOKEN_NEWLINE, 'InitialState'),
         (lexer.tokens,),
@@ -327,6 +351,15 @@ class Parser(object):
         if last_state is StatementForState and state is InitialState:
             self.add_statement_for(data)
             return []
+        if last_state is StatementIfState and state is InitialState:
+            self.add_statement_if(data)
+            return []
+        if last_state is StatementElifState and state is InitialState:
+            self.add_statement_elif(data)
+            return []
+        if last_state is StatementElseState and state is InitialState:
+            self.add_statement_else(data)
+            return []
         return data
 
     def add_tag(self, data):
@@ -364,6 +397,37 @@ class Parser(object):
         node = ForStatementNode(u''.join([v[1] for v in data ]), 
                                 lineno=self.lineno, col_offset=self.col_offset)
         self.ctx.nodes.append(node)
+        self.push_stack(node)
+
+    def add_statement_if(self, data):
+        node = IfStatementNode(u''.join([v[1] for v in data ]), 
+                                lineno=self.lineno, col_offset=self.col_offset)
+        self.ctx.nodes.append(node)
+        self._if_blocks.append((self.level, node))
+        self.push_stack(node)
+
+    def add_statement_elif(self, data):
+        node = IfStatementNode(u''.join([v[1] for v in data ]), 
+                                lineno=self.lineno, col_offset=self.col_offset)
+        last = []
+        for level, if_stmt in self._if_blocks:
+            if self.level > level:
+                last.append((level, if_stmt))
+            elif self.level == level:
+                if_stmt.orelse.append(node)
+        last.append((self.level, node))
+        self._if_blocks = last
+        self.push_stack(node)
+
+    def add_statement_else(self, data):
+        node = StatementElse()
+        last = []
+        for level, if_stmt in self._if_blocks:
+            if self.level > level:
+                last.append((level, if_stmt))
+            elif self.level == level:
+                if_stmt.orelse.append(node)
+        self._if_blocks = last
         self.push_stack(node)
 
 

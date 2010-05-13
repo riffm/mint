@@ -14,3 +14,12 @@
                 #for i in range(5):
                     #for y in range(i):
                         @li {{ i }} {{ y }} привет
+        #if a == 'd':
+            @p {{ a }}
+        #elif c == ',':
+            @p {{ c }}
+            #if a == 'a':
+                @p {{ a }}
+        #else:
+            @p {{ b }}
+        @div.class(after)

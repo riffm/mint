@@ -21,7 +21,8 @@ class TemplateNotFound(Exception):
 class Template(object):
 
     def __init__(self, sourcefile, cache=True, loader=None):
-        self.sourcefile = sourcefile
+        self.sourcefile = StringIO(sourcefile) if isinstance(sourcefile, basestring) else sourcefile
+        self.filename = '<string>' if isinstance(sourcefile, basestring) else sourcefile.name
         self.need_caching = cache
         # ast
         self._tree = None
@@ -51,7 +52,7 @@ class Template(object):
         return tree
 
     def compile(self):
-        compiled_souces = compile(self.tree, self.sourcefile.name, 'exec')
+        compiled_souces = compile(self.tree, self.filename, 'exec')
         if self.need_caching:
             self.compiled_code = compiled_souces
         return compiled_souces

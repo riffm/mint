@@ -2,6 +2,7 @@
 
 import mmap
 import re
+from StringIO import StringIO
 
 
 class TokenWrapper(object):
@@ -42,6 +43,7 @@ TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
 TOKEN_WORD = TokenWrapper('word', regex_str=r'\w+')
 TOKEN_DIGIT = TokenWrapper('digit', regex_str=r'[0-9]+')
 TOKEN_DOT = TokenWrapper('dot', value='.')
+TOKEN_SCREAMER = TokenWrapper('screamer', value='!')
 TOKEN_PARENTHESES_OPEN = TokenWrapper('parentheses_open', value='(')
 TOKEN_PARENTHESES_CLOSE = TokenWrapper('parentheses_close', value=')')
 TOKEN_SQUARE_BRACKETS_OPEN = TokenWrapper('square_bracket_open', value='[')
@@ -75,14 +77,19 @@ class TokensStream(object):
         self.current = None
 
     def tokenize(self):
-        map = mmap.mmap(self.fp.fileno(), 0, access=mmap.ACCESS_READ)
+        if isinstance(self.fp, StringIO):
+            map = self.fp
+            size = map.len
+        else:
+            map = mmap.mmap(self.fp.fileno(), 0, access=mmap.ACCESS_READ)
+            size = map.size()
         lineno = 0
         pos = 0
         while 1:
             lineno += 1
 
             # end of file
-            if map.tell() == map.size():
+            if map.tell() == size:
                 yield TOKEN_EOF, 'EOF', lineno, 0
                 break
 
