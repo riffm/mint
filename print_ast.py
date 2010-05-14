@@ -22,7 +22,6 @@ class Printer(ast.NodeVisitor):
         self.make_tab()
         self.src.write('def %s(' % node.name)
         self._in_args = True
-        print ast.dump(node.args)
         total_args = len(node.args.args)
         default_args_len = len(node.args.defaults) if node.args.defaults else 0
         for i, arg in enumerate(node.args.args):
