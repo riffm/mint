@@ -22,10 +22,17 @@ class Printer(ast.NodeVisitor):
         self.make_tab()
         self.src.write('def %s(' % node.name)
         self._in_args = True
+        print ast.dump(node.args)
+        total_args = len(node.args.args)
+        default_args_len = len(node.args.defaults) if node.args.defaults else 0
         for i, arg in enumerate(node.args.args):
             if i != 0:
                 self.src.write(', ')
             self.visit(arg)
+            if default_args_len > 0 and i >= (total_args - default_args_len):
+                self.src.write('=')
+                y = (total_args - default_args_len) - i
+                self.visit(node.args.defaults[y])
         self._in_args = False
         self.src.write('):\n')
         self._indent += 1
@@ -37,7 +44,7 @@ class Printer(ast.NodeVisitor):
         self.src.write(node.id)
 
     def visit_Str(self, node):
-        self.src.write('"%s"' % node.s)
+        self.src.write('%r' % node.s)
 
     def visit_Num(self, node):
         self.src.write('%d' % node.n)
