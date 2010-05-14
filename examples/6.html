@@ -1,9 +1,7 @@
-@base examples/base.html
+#base: examples/base.html
 
-!def first_slot()
-    <p
-        this is first slot {{ d }}
+#def first_slot()
+    @p this is first slot {{ d }}
 
-!def content()
-    <p
-        this is content slot {{ c }}
+#def content()
+    @p this is content slot {{ c }}

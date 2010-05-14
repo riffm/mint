@@ -9,14 +9,13 @@ from ast import Load, Store, Param
 
 
 #TODO
-# - Text escaping
-# - "IF-ELIF-ELSE" statement
+# - Escaping
+# + "IF-ELIF-ELSE" statement
 # - "IF-ELIF-ELSE" templates error handling
-# - "FOR" statement
+# + "FOR" statement
 # - blocks (inheritance)
-# - python variables (i.e. !a = 'hello')
-# - '%' chars escaping in strings
-# - '\' escaping of ':' '!' '@'
+# - python variables (i.e. #a = 'hello')
+# + '\' escaping of '@' '#'
 
 class TemplateError(Exception): pass
 class WrongToken(Exception): pass
@@ -26,8 +25,6 @@ class WrongToken(Exception): pass
 
 # States
 class State(object):
-    # shows state to deligate to and stop_token
-    deligate = []
 
     @classmethod
     def accept(cls, token):
@@ -46,9 +43,6 @@ class State(object):
         raise WrongToken(msg)
 
 
-#states = [v for v in locals().values() if isinstance(v, State)]
-
-
 def AnyToken(exclude=None):
     if exclude is None:
         return lexer.tokens
@@ -58,15 +52,25 @@ def AnyToken(exclude=None):
 
 class InitialState(State):
     variantes = [
+        (lexer.TOKEN_BASE_TEMPLATE, 'BaseTemplatesNameState'),
+        (lexer.TOKEN_SLOT_DEF, 'SlotDefState'),
         (lexer.TOKEN_TAG_START , 'TagState'),
-        ((lexer.TOKEN_WHITESPACE, lexer.TOKEN_NEWLINE), ),
+        (lexer.TOKEN_WHITESPACE, ),
+        (lexer.TOKEN_NEWLINE, 'EmptyLineState'),
         (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
         (lexer.TOKEN_BACKSLASH, 'EscapedTextLineState'),
         (lexer.TOKEN_STATEMENT_FOR, 'StatementForState'),
         (lexer.TOKEN_STATEMENT_IF, 'StatementIfState'),
         (lexer.TOKEN_STATEMENT_ELIF, 'StatementElifState'),
         (lexer.TOKEN_STATEMENT_ELSE, 'StatementElseState'),
+        (lexer.TOKEN_STMT_CHAR, 'SlotCallState'),
         (lexer.tokens, 'TextState'),
+    ]
+
+
+class EmptyLineState(State):
+    variantes = [
+        (lexer.tokens, 'InitialState'),
     ]
 
 class EscapedTextLineState(State):
@@ -178,6 +182,27 @@ class StatementElseState(State):
     ]
 
 
+class BaseTemplatesNameState(State):
+    variantes = [
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.tokens,),
+    ]
+
+
+class SlotDefState(State):
+    variantes = [
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.tokens,),
+    ]
+
+
+class SlotCallState(State):
+    variantes = [
+        (lexer.TOKEN_NEWLINE, 'InitialState'),
+        (lexer.tokens,),
+    ]
+
+
 class Parser(object):
 
     # Variable's names for generated code
@@ -191,7 +216,7 @@ class Parser(object):
         '__builtins__':__builtins__,
     }
 
-    def __init__(self, slots=None, indent=4):
+    def __init__(self, slots=None, indent=4, pprint=True):
         self.indent_level = indent
         self.indent = u' ' *indent
         self.__id = 0
@@ -200,15 +225,14 @@ class Parser(object):
         self.base = None
         # final module, which stores all prepaired nodes
         # current scope
-        self.ctx = TagNode('') # root tag node
+        self.ctx = TagNode('', 0) # root tag node
         # indicates if we are in text block
         self._text_block = []
         # if elif else
         self._if_blocks = []
+        # slots is dict, because any slot may be overriden in inherited templates
         self.slots = slots if slots else {}
-        self._slot_level = None
-        self.store = {}
-        self.ctx_type = 'normal'
+        self.pprint = pprint
 
     def push_stack(self, ctx):
         '''
@@ -226,17 +250,6 @@ class Parser(object):
     def level(self):
         return len(self.stack)
 
-    def switch_ctx(self, to='normal'):
-        self.ctx_type = to
-        if to == 'normal':
-            self.ctx, self.stack = self.store[to]
-        elif to == 'slot':
-            self.store['normal'] = (self.ctx, self.stack)
-            self.ctx = None
-            self.stack = []
-        else:
-            raise ValueError('Unknown context "%s"' % to)
-
     def _id(self):
         self.__id += 1
         return self.__id
@@ -252,6 +265,11 @@ class Parser(object):
                        value=ast.Attribute(value=ast.Name(id=self.OUTPUT_NAME, ctx=Load(), lineno=1, col_offset=0),
                                            attr='write', ctx=Load(), lineno=1, col_offset=0),
                                  lineno=1, col_offset=0)], lineno=1, col_offset=0)
+
+        # First we need to have slots in module_tree
+        for slot in self.slots.values():
+            module_tree.body.append(slot.to_ast(self.OUTPUT_WRITER))
+        # Then other content
         nodes_list = self.ctx.to_list()
         for i in merged_nodes(nodes_list):
             module_tree.body.append(i.to_ast(self.OUTPUT_WRITER))
@@ -281,12 +299,12 @@ class Parser(object):
             self.pop_stack()
 
     def _get_level(self, line):
-        level = len(line)/self.indent_level
-        if self.ctx_type == 'slot':
-            return level - self._slot_level
-        return level
+        return len(line)/self.indent_level
 
     def process(self, last_state, state, data):
+        # empty line
+        if last_state is InitialState and state is EmptyLineState:
+            return []
         # set level and ctx
         if last_state is InitialState and data[0][0] is lexer.TOKEN_WHITESPACE:
             self.set_level(data[0][1])
@@ -346,26 +364,44 @@ class Parser(object):
         if last_state is EndTagAttrState and state is not TagAttrState:
             return []
         if last_state is EndTagAttrState and state is InitialState:
-            self.ctx.nodes.append(TextNode(u'\n'))
+            #self.ctx.nodes.append(TextNode(u'\n'))
             return []
+        # #for i in range(4):
         if last_state is StatementForState and state is InitialState:
             self.add_statement_for(data)
             return []
+        # #if a:
         if last_state is StatementIfState and state is InitialState:
             self.add_statement_if(data)
             return []
+        # #elif a:
         if last_state is StatementElifState and state is InitialState:
             self.add_statement_elif(data)
             return []
+        # #else:
         if last_state is StatementElseState and state is InitialState:
             self.add_statement_else(data)
+            return []
+        # #base:
+        if last_state is BaseTemplatesNameState and state is InitialState:
+            #XXX: should validation founds here?
+            if self.lineno == 1:
+                self.base_template(data[1:-1])
+        # #def slot():
+        if last_state is SlotDefState and state is InitialState:
+            self.add_slot_def(data)
+            return []
+        # #slot():
+        if last_state is SlotCallState and state is InitialState:
+            # first token - '#'
+            self.add_slot_call(data[1:])
             return []
         return data
 
     def add_tag(self, data):
         #print 'add tag:', ''.join((v[1] for v in data ))
         t, val = data[0]
-        node = TagNode(val)
+        node = TagNode(val, self.level)
         self.ctx.nodes.append(node)
         self.push_stack(node)
 
@@ -387,7 +423,6 @@ class Parser(object):
 
     def set_level(self, data):
         level = self._get_level(data)
-        self.ctx.nodes.append(TextNode(data))
         #print 'set indention:', level, self.level
         if level <= self.level:
             for y in range(self.level - level):
@@ -430,6 +465,19 @@ class Parser(object):
         self._if_blocks = last
         self.push_stack(node)
 
+    def base_template(self, data):
+        self.base = u''.join([v[1] for v in data])
+
+    def add_slot_def(self, data):
+        slot_def = u''.join([v[1] for v in data])[1:]
+        node = SlotDefNode(slot_def, self.lineno, self.col_offset)
+        self.slots[node.name] = node
+        self.push_stack(node)
+
+    def add_slot_call(self, data):
+        #print 'add expression:', ''.join((v[1] for v in data ))
+        self.ctx.nodes.append(SlotCallNode(u''.join([v[1] for v in data ]).lstrip(), 
+                              lineno=self.lineno, col_offset=self.col_offset))
 
 if __name__ == '__main__':
     import sys

@@ -34,12 +34,16 @@ COMMENT_CHAR = '//'
 
 # Tokens
 TOKEN_TAG_START = TokenWrapper('tag_start', value=TAG_CHAR)
+TOKEN_BASE_TEMPLATE = TokenWrapper('base_template', value='%sbase: ' % STMT_CHAR)
 TOKEN_STATEMENT_IF = TokenWrapper('statement_if', value='%sif ' % STMT_CHAR)
 TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', value='%selif ' % STMT_CHAR)
 TOKEN_STATEMENT_ELSE = TokenWrapper('statement_else', value='%selse:' % STMT_CHAR)
 TOKEN_STATEMENT_FOR = TokenWrapper('statement_for', value='%sfor ' % STMT_CHAR)
+TOKEN_SLOT_DEF = TokenWrapper('slot_def', value='%sdef ' % STMT_CHAR)
+TOKEN_STMT_CHAR = TokenWrapper('slot_call', value=STMT_CHAR)
 TOKEN_COMMENT = TokenWrapper('comment', value=COMMENT_CHAR)
 TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
+TOKEN_SLASH = TokenWrapper('slash', value='/')
 TOKEN_WORD = TokenWrapper('word', regex_str=r'\w+')
 TOKEN_DIGIT = TokenWrapper('digit', regex_str=r'[0-9]+')
 TOKEN_DOT = TokenWrapper('dot', value='.')
@@ -66,7 +70,39 @@ TOKEN_NEWLINE = TokenWrapper('newline', regex_str=r'(\r\n|\r|\n)')
 TOKEN_EOF = EOF()
 
 
-tokens = [v for v in locals().values() if isinstance(v, TokenWrapper)]
+#tokens = [v for v in locals().values() if isinstance(v, TokenWrapper)]
+
+tokens = (
+    TOKEN_TAG_START,
+    TOKEN_BASE_TEMPLATE,
+    TOKEN_STATEMENT_IF,
+    TOKEN_STATEMENT_ELIF,
+    TOKEN_STATEMENT_ELSE,
+    TOKEN_STATEMENT_FOR,
+    TOKEN_SLOT_DEF,
+    TOKEN_STMT_CHAR,
+    TOKEN_COMMENT,
+    TOKEN_BACKSLASH,
+    TOKEN_SLASH,
+    TOKEN_WORD,
+    TOKEN_DIGIT,
+    TOKEN_DOT,
+    TOKEN_SCREAMER,
+    TOKEN_PARENTHESES_OPEN,
+    TOKEN_PARENTHESES_CLOSE,
+    TOKEN_SQUARE_BRACKETS_OPEN,
+    TOKEN_SQUARE_BRACKETS_CLOSE,
+    TOKEN_EXPRESSION_START,
+    TOKEN_EXPRESSION_END,
+    TOKEN_PUNCTUATION,
+    TOKEN_COLON,
+    TOKEN_WHITESPACE,
+    TOKEN_QUOTE,
+    TOKEN_DOUBLE_QUOTE,
+    TOKEN_MINUS,
+    TOKEN_OPERATOR,
+    TOKEN_NEWLINE,
+)
 
 re_comment = re.compile(r'\s*//')
 

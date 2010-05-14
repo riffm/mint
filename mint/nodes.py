@@ -23,7 +23,7 @@ def escape(obj):
 class TextNode(object):
     '''Simple node, represents text'''
 
-    def __init__(self, value, escaping=True, lineno=None, col_offset=None):
+    def __init__(self, value, escaping=True, lineno=None, col_offset=None, level=None):
         #TODO: remove this checking, use Markup instead
         if escaping:
             self.value = escape(value)
@@ -32,6 +32,7 @@ class TextNode(object):
         # default values to lineno and col_offset
         self.lineno = lineno if lineno else 1
         self.col_offset = col_offset if col_offset else 1
+        self.level = level if level else 0
 
     def to_ast(self, writer_name):
         value = ast.Str(s=self.value, lineno=self.lineno, col_offset=self.col_offset)
@@ -101,11 +102,12 @@ class TagNode(object):
 
     _selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
 
-    def __init__(self, name):
+    def __init__(self, name, level):
         self.name = name
         self.nodes = []
         self._attrs = []
         self._attrs_if = {}
+        self.level = level
 
     def set_attr(self, node):
         #TODO: we need to be sure that user did not set same attr
@@ -146,7 +148,7 @@ class TagNode(object):
         return nodes_list
 
     def __repr__(self):
-        return '%s("%s", nodes=%r, attrs=%r)' % (self.__class__.__name__, self.name,
+        return '%s("%s", level=%r, nodes=%r, attrs=%r)' % (self.__class__.__name__, self.name, self.level,
                                                  self.nodes, self._attrs)
 
 
@@ -221,6 +223,50 @@ class StatementElse(object):
         self.nodes = []
 
 
+class SlotDefNode(object):
+
+    def __init__(self, expr, lineno, col_offset):
+        self.expr = expr
+        self.nodes = []
+        self.name = expr[4:expr.find('(')]
+        self.lineno = lineno
+        self.col_offset = col_offset
+
+    def to_ast(self, writer_name):
+        nodes = nodes_to_list(self.nodes)
+        expr = self.expr.strip()
+        if expr[-1] != ':':
+            expr += ':'
+        if expr.startswith('#'):
+            expr = expr[1:]
+        expr = expr + ' pass'
+        tree = ast.parse(expr).body[0]
+        # clear tree body from Pass()
+        tree.body = []
+        for node in merged_nodes(nodes):
+            tree.body.append(node.to_ast(writer_name))
+        return tree
+
+    def __repr__(self):
+        return '%s(%r, %r, %r)' % (self.__class__.__name__, self.expr,
+                           self.lineno, self.col_offset)
+
+
+class SlotCallNode(object):
+    '''Simple slot call, represents python function call'''
+
+    def __init__(self, value, lineno, col_offset):
+        self.value = value
+        self.lineno = lineno
+        self.col_offset = col_offset
+
+    def to_ast(self, writer_name):
+        return ast.parse(self.value).body[0]
+
+    def __repr__(self):
+        return '%s(%s)' % (self.__class__.__name__, self.value)
+
+
 def nodes_to_list(nodes, nodes_list=None):
     if nodes_list is None:
         nodes_list = []
@@ -254,4 +300,5 @@ def merged_nodes(nodes_list):
         else:
             last = n
             continue
-    yield last
+    if last is not None:
+        yield last
