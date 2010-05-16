@@ -44,7 +44,7 @@ class TextNode(object):
                         lineno=self.lineno, col_offset=self.col_offset)
 
     def __repr__(self):
-        return '%s("%s")' % (self.__class__.__name__, self.value)
+        return '%s(%r)' % (self.__class__.__name__, self.value)
 
 
 class ExprNode(object):
@@ -68,7 +68,7 @@ class ExprNode(object):
                         lineno=self.lineno, col_offset=self.col_offset)
 
     def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self.value)
+        return '%s(%r)' % (self.__class__.__name__, self.value)
 
 
 class AttrNode(object):
@@ -117,9 +117,8 @@ class TagNode(object):
     def set_attr_if(self, expr, name, value):
         self._attrs_if[name] = value
 
-    def to_list(self, nodes_list=None):
-        if nodes_list is None:
-            nodes_list = []
+    def to_list(self):
+        nodes_list = []
 
         # open tag
         if self.name:
@@ -128,27 +127,27 @@ class TagNode(object):
             for attr in self._attrs:
                 nodes_list += attr.to_list()
         if self.name in self._selfclosed:
-            nodes_list.append(TextNode(u' />', escaping=False))
+            nodes_list.append(TextNode(u' />\n', escaping=False))
             if self.nodes:
                 raise TemplateError('Tag "%s" can not have childnodes' % self.name)
             return
         else:
             if self.name:
-                nodes_list.append(TextNode(u'>', escaping=False))
+                nodes_list.append(TextNode(u'>\n', escaping=False))
 
         # collect other nodes
         for node in self.nodes:
             if isinstance(node, self.__class__):
-                node.to_list(nodes_list=nodes_list)
+                nodes_list += node.to_list()
             else:
                 nodes_list.append(node)
         # close tag
         if self.name:
-            nodes_list.append(TextNode(u'</%s>' % self.name, escaping=False))
+            nodes_list.append(TextNode(u'</%s>\n' % self.name, escaping=False))
         return nodes_list
 
     def __repr__(self):
-        return '%s("%s", level=%r, nodes=%r, attrs=%r)' % (self.__class__.__name__, self.name, self.level,
+        return '%s(%r, level=%r, nodes=%r, attrs=%r)' % (self.__class__.__name__, self.name, self.level,
                                                  self.nodes, self._attrs)
 
 
@@ -272,18 +271,16 @@ def nodes_to_list(nodes, nodes_list=None):
         nodes_list = []
     for n in nodes:
         if isinstance(n, TagNode):
-            n.to_list(nodes_list=nodes_list)
+            nodes_list += n.to_list()
         else:
             nodes_list.append(n)
     return nodes_list
 
 
 def merge(a, b):
-    if isinstance(a, TextNode):
-        if isinstance(b, TextNode):
-            a.value += b.value
-            return None
-    return b
+    if isinstance(a, TextNode) and isinstance(b, TextNode):
+        return TextNode(a.value+b.value, escaping=False)
+    return None
 
 
 def merged_nodes(nodes_list):
@@ -294,8 +291,9 @@ def merged_nodes(nodes_list):
         if last is not None:
             result = merge(last, n)
             if result is None:
+                yield last
+                last = n
                 continue
-            yield last
             last = result
         else:
             last = n

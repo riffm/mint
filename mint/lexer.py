@@ -135,6 +135,7 @@ class TokensStream(object):
             is_comment = re_comment.match(line)
             if is_comment:
                 continue
+
             while line:
                 line_len = len(line)
                 for token in tokens:

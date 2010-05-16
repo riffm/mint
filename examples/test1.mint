@@ -1,4 +1,10 @@
 #base: examples/test.mint
 
 #def content(arg):
-    @div {{ arg }} INHERITED
+    @div {{ arg }}
+    @p
+        sfhsjdh
+
+        
+
+        sjfsjdfhkj

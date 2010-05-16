@@ -13,7 +13,7 @@ from ast import Load, Store, Param
 # + "IF-ELIF-ELSE" statement
 # - "IF-ELIF-ELSE" templates error handling
 # + "FOR" statement
-# - blocks (inheritance)
+# + blocks (inheritance)
 # - python variables (i.e. #a = 'hello')
 # + '\' escaping of '@' '#'
 
@@ -55,8 +55,9 @@ class InitialState(State):
         (lexer.TOKEN_BASE_TEMPLATE, 'BaseTemplatesNameState'),
         (lexer.TOKEN_SLOT_DEF, 'SlotDefState'),
         (lexer.TOKEN_TAG_START , 'TagState'),
-        (lexer.TOKEN_WHITESPACE, ),
-        (lexer.TOKEN_NEWLINE, 'EmptyLineState'),
+        #(lexer.TOKEN_WHITESPACE, ),
+        #(lexer.TOKEN_NEWLINE, 'EmptyLineState'),
+        ((lexer.TOKEN_WHITESPACE, lexer.TOKEN_NEWLINE), ),
         (lexer.TOKEN_EXPRESSION_START, 'ExpressionState'),
         (lexer.TOKEN_BACKSLASH, 'EscapedTextLineState'),
         (lexer.TOKEN_STATEMENT_FOR, 'StatementForState'),
@@ -67,11 +68,6 @@ class InitialState(State):
         (lexer.tokens, 'TextState'),
     ]
 
-
-class EmptyLineState(State):
-    variantes = [
-        (lexer.tokens, 'InitialState'),
-    ]
 
 class EscapedTextLineState(State):
     variantes = [
@@ -267,10 +263,12 @@ class Parser(object):
                                  lineno=1, col_offset=0)], lineno=1, col_offset=0)
 
         # First we need to have slots in module_tree
+        #print self.slots
         for slot in self.slots.values():
             module_tree.body.append(slot.to_ast(self.OUTPUT_WRITER))
         # Then other content
         nodes_list = self.ctx.to_list()
+        #print nodes_list
         for i in merged_nodes(nodes_list):
             module_tree.body.append(i.to_ast(self.OUTPUT_WRITER))
         return module_tree
@@ -301,14 +299,30 @@ class Parser(object):
     def _get_level(self, line):
         return len(line)/self.indent_level
 
+    def _split_whitespaces(self, data):
+        prefix, data = data[:-1], data[-1:]
+        pos = None
+        for i, d in enumerate(prefix):
+            if d[0] is lexer.TOKEN_NEWLINE:
+                pos = i
+
+        if pos is None:
+            return data, prefix and prefix[0][1] or u''
+        else:
+            if prefix[:pos+1]:
+                #print 'add_text', prefix[:pos+1]
+                self.add_text(prefix[:pos+1])
+            if len(prefix) > pos + 1:
+                return data, prefix[pos+1][1]
+            return data, u''
+
     def process(self, last_state, state, data):
-        # empty line
-        if last_state is InitialState and state is EmptyLineState:
-            return []
         # set level and ctx
-        if last_state is InitialState and data[0][0] is lexer.TOKEN_WHITESPACE:
-            self.set_level(data[0][1])
-            data = data[1:]
+        if last_state is InitialState:
+            #print data
+            data, whitespaces = self._split_whitespaces(data)
+            #print '%r' % whitespaces, data
+            self.set_level(whitespaces)
         # \ text text
         if last_state is EscapedTextLineState and state is InitialState:
             # first token - TOKEN_BACKSLASH, last - TOKEN_NEWLINE
@@ -387,6 +401,7 @@ class Parser(object):
             #XXX: should validation founds here?
             if self.lineno == 1:
                 self.base_template(data[1:-1])
+                return []
         # #def slot():
         if last_state is SlotDefState and state is InitialState:
             self.add_slot_def(data)
@@ -406,7 +421,7 @@ class Parser(object):
         self.push_stack(node)
 
     def add_text(self, data):
-        #print 'add text:', ''.join((v[1] for v in data ))
+        #print 'add text:', '%r' % ''.join((v[1] for v in data ))
         self.ctx.nodes.append(TextNode(u''.join([v[1] for v in data ]), 
                                        lineno=self.lineno, col_offset=self.col_offset))
 
@@ -471,7 +486,8 @@ class Parser(object):
     def add_slot_def(self, data):
         slot_def = u''.join([v[1] for v in data])[1:]
         node = SlotDefNode(slot_def, self.lineno, self.col_offset)
-        self.slots[node.name] = node
+        if not node.name in self.slots:
+            self.slots[node.name] = node
         self.push_stack(node)
 
     def add_slot_call(self, data):
