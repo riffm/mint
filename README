@@ -115,6 +115,6 @@ For end user there is one useful class Loader
 
 If you want to see python code, to which your template will be compiled run
 
-    $python mint.py hello.py
+    $python mint.py hello.mint
 
 That's all folks!
