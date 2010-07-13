@@ -9,5 +9,5 @@ setup(
     #scripts=['mint/mint-import'],
     author='Tim Perevezentsev',
     author_email='riffm2005@gmail.com',
-    modules=['mint']
+    py_modules=['mint']
 )
