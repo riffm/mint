@@ -1,4 +1,120 @@
-Template Engine Based on Indention and Python
----------------------------------------------
+mint
+----
 
-work in progress
+mint is single python module that allows to write short html/xml templates,
+which then work fast. Template engine was inspired by haml (a template engine written in ruby), but some conceptions were redisigned due to simplification.
+
+mint uses AST python module to compile python bytecode from templates. So, during first call template is compiling and every next call to it takes really small amount of time (of course it depends on python method and attribute calls in template).
+
+Example:
+
+
+    @html
+        @head
+            @title {{ title }}
+        @body
+            @div.id(wrapper)
+                @div.id(header)
+                    #def content(action='hello'):
+                        @p.class(slot)
+                            {{ action }}, {{ name }}!
+                    #content()
+                @div.id(footer)
+                    Here we have banners from our sponsors
+
+If you execute this template with namespace {'title':'site title', 'name':'mint'}, you will get
+
+    <html>
+        <head>
+            <title>site title</title>
+        </head>
+        <body>
+            <div id="wrapper">
+                <div id="header">
+                    <p class="slot">
+                        hello, mint!
+                    </p>
+                </div>
+                <div id="footer">
+                    Here we have banners from our sponsors
+                </div>
+            </div>
+        </body>
+    </html>
+
+@ - token defines tags, all tag attributes are dot-separated name of attrubte values pairs, values can be text or variables or mixed.
+
+    @a.href({{ url }}).title(Url to somewhere) {{ name_of_somewhere }}
+
+    <a title="Url to somewhere" href="http://somewhere">somewhere site title</a>
+
+# - token defines special parts of templates such as loops, conditions and slots
+
+    @ul
+        #for i in range(10)
+            #if i % 2
+                @li {{ i }}
+            #else
+                @li.class(odd) {{ i }}
+
+    <ul>
+        <li>0</li>
+        <li class="odd">1</li>
+        <li>2</li>
+        ...
+        <li class="odd">9</li>
+    </ul>
+
+NOTE: ':' colon at the end of python expression may be ommited
+NOTE: condition and loop statements may have any valid python expressions (!).
+
+Slots - something like python functions, which can be defined at any place of template and then call in other place. Template inheritance implements with slots, so it is very important part of mint.
+
+    #def content(action='hello'):
+        @p.class(slot)
+            {{ action }}, {{ name }}!
+
+Slot have scope (!) and see global variables too (variables which came to template from inside). In this case {{ action }} is local variable, but {{ name }} is not.
+If you want to inherit a template just tell mint which template and implement slots you want to change.
+
+    #base: hello.mint
+
+    #def content(action='Hello'):
+        @p.class(slot)
+            {{ action }}, {{ name }}! You are inherited!
+
+This template inherits first template defined in this memo and overrides slot "content", so when you will compile and execute last template you would see something like
+
+    <html>
+        <head>
+            <title>site title</title>
+        </head>
+        <body>
+            <div id="wrapper">
+                <div id="header">
+                    <p class="slot">
+                        Hello, mint! You are inherited!
+                    </p>
+                </div>
+                <div id="footer">
+                    Here we have banners from our sponsors
+                </div>
+            </div>
+        </body>
+    </html>
+
+API
+---
+
+For end user there is one useful class Loader
+
+    from mint import Loader
+
+    loader = Loader(PATH_TO_TEMPLATES, cache=True)
+    print loader.get_template(TEMPLATE_NAME).render(**kwargs).encode('utf-8')
+
+If you want to see python code, to which your template will be compiled run
+
+    $python mint.py hello.py
+
+That's all folks!

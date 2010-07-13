@@ -10,4 +10,5 @@ setup(
     author='Tim Perevezentsev',
     author_email='riffm2005@gmail.com',
     py_modules=['mint']
+    url='http://github.com/riffm/mint',
 )
