@@ -7,3 +7,5 @@
     #for i, loop in utils.loop(range(9)):
         @li.class({{ loop.odd and 'odd' or '' }} {{ loop.cycle('one', 'two', 'three') }}) 
             {{ i }} {{ loop.index }} {{ loop.first }} {{ loop.last }}
+
+@a.href(http://docs/?a=1&b=2) docs

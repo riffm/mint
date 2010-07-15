@@ -1,10 +1,12 @@
+{{ utils.HTML5 }}
 @html
     @head
         @title {{ a }}
     @body
-        // first div 
+        -- first div
         @div.id(content)
             #def content(arg, arg1='arg1'):
+                {{ for StopIteration }}
                 @p.class(slot)
                     Slot text {{ arg }}
                 @b
@@ -18,7 +20,7 @@
             @ul
                 #for i in range(1, 5):
                     #for y in range(i):
-                        @li {{ i }} {{ y }} привет
+                       @li {{ i }} {{ y }} привет
         #if a == 'd':
             @p {{ a }}
         #elif c == 'c':

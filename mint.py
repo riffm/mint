@@ -53,7 +53,7 @@ class EOF(object):
 # constants
 TAG_CHAR = '@'
 STMT_CHAR = '#'
-COMMENT_CHAR = '//'
+COMMENT_CHAR = '--'
 
 # Tokens
 TOKEN_TAG_START = TokenWrapper('tag_start', value=TAG_CHAR)
@@ -251,7 +251,8 @@ class ExprNode(object):
                          starargs=None, kwargs=None,
                          lineno=self.lineno, col_offset=self.col_offset)
         return ast.Expr(value=ast.Call(func=ast.Name(id=writer_name, ctx=Load(), 
-                                                     lineno=self.lineno, col_offset=self.col_offset),
+                                                     lineno=self.lineno, 
+                                                     col_offset=self.col_offset),
                                        args=[value],
                                        keywords=[], starargs=None, kwargs=None,
                                        lineno=self.lineno, col_offset=self.col_offset),
