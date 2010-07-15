@@ -11,9 +11,10 @@ import mmap
 import re
 import ast
 import htmlentitydefs
-from StringIO import StringIO
-from ast import Load, Store, Param
 from os import path
+from ast import Load, Store, Param
+from StringIO import StringIO
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +38,16 @@ class TokenWrapper(object):
 
     __repr__ = __str__
 
+class TextToken(object):
+    'Special token for text'
+    def __str__(self):
+        return 'text'
+    __repr__ = __str__
 
 class EOF(object):
     'Special token'
-
     def __str__(self):
         return 'eof'
-
     __repr__ = __str__
 
 # constants
@@ -59,34 +63,19 @@ TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', value='%selif ' % STMT_CHA
 TOKEN_STATEMENT_ELSE = TokenWrapper('statement_else', value='%selse:' % STMT_CHAR)
 TOKEN_STATEMENT_FOR = TokenWrapper('statement_for', value='%sfor ' % STMT_CHAR)
 TOKEN_SLOT_DEF = TokenWrapper('slot_def', value='%sdef ' % STMT_CHAR)
-TOKEN_STMT_CHAR = TokenWrapper('slot_call', value=STMT_CHAR)
+TOKEN_STMT_CHAR = TokenWrapper('hash', value=STMT_CHAR)
 TOKEN_COMMENT = TokenWrapper('comment', value=COMMENT_CHAR)
 TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
-TOKEN_SLASH = TokenWrapper('slash', value='/')
-TOKEN_WORD = TokenWrapper('word', regex_str=r'\w+')
-TOKEN_DIGIT = TokenWrapper('digit', regex_str=r'[0-9]+')
 TOKEN_DOT = TokenWrapper('dot', value='.')
-TOKEN_SCREAMER = TokenWrapper('screamer', value='!')
+TOKEN_COLON = TokenWrapper('colon', value=':')
 TOKEN_PARENTHESES_OPEN = TokenWrapper('parentheses_open', value='(')
 TOKEN_PARENTHESES_CLOSE = TokenWrapper('parentheses_close', value=')')
-TOKEN_SQUARE_BRACKETS_OPEN = TokenWrapper('square_bracket_open', value='[')
-TOKEN_SQUARE_BRACKETS_CLOSE = TokenWrapper('square_bracket_close', value=']')
 TOKEN_EXPRESSION_START = TokenWrapper('expression_start', value='{{')
 TOKEN_EXPRESSION_END = TokenWrapper('expression_end', value='}}')
-TOKEN_PUNCTUATION = TokenWrapper('punctuation', regex_str=r'(,|;)')
-TOKEN_COLON = TokenWrapper('colon', value=':')
 TOKEN_WHITESPACE = TokenWrapper('whitespace', regex_str=r'\s+')
-TOKEN_QUOTE = TokenWrapper('quote', value="'")
-TOKEN_DOUBLE_QUOTE = TokenWrapper('double_quote', value='"')
-TOKEN_MINUS = TokenWrapper('minus', value='-')
-TOKEN_OPERATOR = TokenWrapper('operator',
-                              regex_str=r'(%s)' % '|'.join(
-                                  [re.escape(v) for v in ('+', '*', '**', '^', 
-                                                          '=', '==', '<=', '>=' , '<',
-                                                          '>', '|')]
-                              ))
 TOKEN_NEWLINE = TokenWrapper('newline', regex_str=r'(\r\n|\r|\n)')
 TOKEN_EOF = EOF()
+TOKEN_TEXT = TextToken()
 
 
 #tokens = [v for v in locals().values() if isinstance(v, TokenWrapper)]
@@ -102,26 +91,17 @@ tokens = (
     TOKEN_STMT_CHAR,
     TOKEN_COMMENT,
     TOKEN_BACKSLASH,
-    TOKEN_SLASH,
-    TOKEN_WORD,
-    TOKEN_DIGIT,
     TOKEN_DOT,
-    TOKEN_SCREAMER,
     TOKEN_PARENTHESES_OPEN,
     TOKEN_PARENTHESES_CLOSE,
-    TOKEN_SQUARE_BRACKETS_OPEN,
-    TOKEN_SQUARE_BRACKETS_CLOSE,
     TOKEN_EXPRESSION_START,
     TOKEN_EXPRESSION_END,
-    TOKEN_PUNCTUATION,
     TOKEN_COLON,
     TOKEN_WHITESPACE,
-    TOKEN_QUOTE,
-    TOKEN_DOUBLE_QUOTE,
-    TOKEN_MINUS,
-    TOKEN_OPERATOR,
     TOKEN_NEWLINE,
 )
+
+all_tokens = list(tokens) + [TOKEN_EOF, TOKEN_TEXT]
 
 re_comment = re.compile(r'\s*//')
 
@@ -156,12 +136,16 @@ class TokensStream(object):
             if is_comment:
                 continue
 
+            last_text = deque()
             while line:
                 line_len = len(line)
                 for token in tokens:
                     if line:
                         m = token.regex.match(line)
                         if m:
+                            if last_text:
+                                yield TOKEN_TEXT, ''.join(last_text), lineno, pos - 1
+                                last_text.clear()
                             if token is TOKEN_COMMENT:
                                 line=''
                                 continue
@@ -170,10 +154,14 @@ class TokensStream(object):
                             yield token, value, lineno, pos
                             pos += offset
 
-                # we did not get right token for the rest of the line
+                # we did not get right in tokens list, so next char is text
                 if line_len == len(line):
-                    raise ValueError(line)
+                    last_text.append(line[0])
+                    line = line[1:]
 
+            if last_text:
+                yield TOKEN_TEXT, ''.join(last_text), lineno, pos
+                last_text.clear()
             yield TOKEN_NEWLINE, '\n', lineno, pos
 
         # all work is done
@@ -237,8 +225,14 @@ class ExprNode(object):
         self.col_offset = col_offset
 
     def to_ast(self, writer_name):
-        value = ast.Call(func=ast.Name(id='unicode', ctx=Load(), lineno=self.lineno, col_offset=self.col_offset),
-                         args=[ast.parse(self.value).body[0].value],
+        unicode_call = ast.Call(func=ast.Name(id='unicode', ctx=Load(), 
+                                              lineno=self.lineno, col_offset=self.col_offset),
+                                args=[ast.parse(self.value).body[0].value],
+                                keywords=[], starargs=None, kwargs=None,
+                                lineno=self.lineno, col_offset=self.col_offset)
+        value = ast.Call(func=ast.Name(id=ESCAPE_HELLPER, ctx=Load(), 
+                                       lineno=self.lineno, col_offset=self.col_offset),
+                         args=[unicode_call],
                          keywords=[], starargs=None, kwargs=None,
                          lineno=self.lineno, col_offset=self.col_offset)
         return ast.Expr(value=ast.Call(func=ast.Name(id=writer_name, ctx=Load(), 
@@ -311,7 +305,7 @@ class TagNode(object):
             nodes_list.append(TextNode(u' />\n', escaping=False))
             if self.nodes:
                 raise TemplateError('Tag "%s" can not have childnodes' % self.name)
-            return
+            return []
         else:
             if self.name:
                 nodes_list.append(TextNode(u'>\n', escaping=False))
@@ -532,8 +526,6 @@ class InitialState(State):
         (TOKEN_BASE_TEMPLATE, 'BaseTemplatesNameState'),
         (TOKEN_SLOT_DEF, 'SlotDefState'),
         (TOKEN_TAG_START , 'TagState'),
-        #(TOKEN_WHITESPACE, ),
-        #(TOKEN_NEWLINE, 'EmptyLineState'),
         ((TOKEN_WHITESPACE, TOKEN_NEWLINE), ),
         (TOKEN_EXPRESSION_START, 'ExpressionState'),
         (TOKEN_BACKSLASH, 'EscapedTextLineState'),
@@ -542,21 +534,21 @@ class InitialState(State):
         (TOKEN_STATEMENT_ELIF, 'StatementElifState'),
         (TOKEN_STATEMENT_ELSE, 'StatementElseState'),
         (TOKEN_STMT_CHAR, 'SlotCallState'),
-        (tokens, 'TextState'),
+        ((TOKEN_WHITESPACE, TOKEN_TEXT), 'TextState'),
     ]
 
 
 class EscapedTextLineState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens, ),
+        (all_tokens, ),
     ]
 
 
 class TagState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (TOKEN_WORD, 'TagNameState'),
+        (TOKEN_TEXT, 'TagNameState'),
     ]
 
 class TagNameState(State):
@@ -569,13 +561,13 @@ class TagNameState(State):
 
 class TagAttrState(State):
     variantes = [
-        (TOKEN_WORD, 'TagAttrNameState'),
+        (TOKEN_TEXT, 'TagAttrNameState'),
     ]
 
 
 class TagAttrNameState(State):
     variantes = [
-        ((TOKEN_WORD, TOKEN_COLON, TOKEN_MINUS), ),
+        ((TOKEN_TEXT, TOKEN_COLON), ),
         (TOKEN_PARENTHESES_OPEN, 'TagAttrTextState'),
     ]
 
@@ -584,15 +576,15 @@ class TagAttrTextState(State):
     variantes = [
         (TOKEN_PARENTHESES_CLOSE, 'EndTagAttrState'),
         (TOKEN_EXPRESSION_START, 'TagAttrExpressionState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class TagAttrExpressionState(State):
     variantes = [
-        (TOKEN_PARENTHESES_CLOSE, 'EndTagAttrState'),
+        #(TOKEN_PARENTHESES_CLOSE, 'EndTagAttrState'),
         (TOKEN_EXPRESSION_END, 'TagAttrTextState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
@@ -608,7 +600,7 @@ class EndTagState(State):
     variantes = [
         (TOKEN_TAG_START, 'TagState'),
         (TOKEN_EXPRESSION_START, 'ExpressionState'),
-        (tokens, 'TextState'),
+        (all_tokens, 'TextState'),
     ]
 
 
@@ -616,70 +608,72 @@ class TextState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
         (TOKEN_EXPRESSION_START, 'ExpressionState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class ExpressionState(State):
     variantes = [
         (TOKEN_EXPRESSION_END, 'TextState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class StatementForState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class StatementIfState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class StatementElifState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class StatementElseState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class BaseTemplatesNameState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class SlotDefState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens,),
+        (all_tokens,),
     ]
 
 
 class SlotCallState(State):
     variantes = [
         (TOKEN_NEWLINE, 'InitialState'),
-        (tokens,),
+        (all_tokens,),
     ]
+
+
+ESCAPE_HELLPER = '__MINT_TEXT_ESCAPE'
 
 
 class Parser(object):
 
     # Variable's names for generated code
-    ESCAPE_HELLPER = '__MINT_TEXT_ESCAPE'
     OUTPUT_NAME = '__MINT__OUTPUT__'
     OUTPUT_WRITER = '__MINT__OUTPUT__WRITER__'
 
@@ -826,7 +820,7 @@ class Parser(object):
             return []
         # @div.class(
         if last_state is TagAttrNameState and state is TagAttrTextState:
-            self.add_attr_name(data[0][1])
+            self.add_attr_name(data[1][1] if data[0][0] is TOKEN_DOT else data[0][1])
             return []
         # @div.class( text)
         if last_state is TagAttrTextState and state is EndTagAttrState:
@@ -1022,6 +1016,7 @@ class Template(object):
         else:
             code = self.compiled_code
         ns = Parser.NAMESPACE.copy()
+        ns['utils'] = utils
         ns.update(kwargs)
         exec code in ns
         return ns[Parser.OUTPUT_NAME].getvalue()
@@ -1052,6 +1047,36 @@ class Loader(object):
     def __add__(self, other):
         self.dirs = self.dirs + other.dirs
         return self
+
+
+#TODO: implement normal, smart markup class.
+#      There is 2 escaping contexts
+#      - inside tag
+#      - inside tag attribute
+#
+#      Implement string (unicode) interface
+class Markup(unicode):
+
+    def __new__(cls, obj=u'', **kwargs):
+        if hasattr(obj, '__html__'):
+            obj = obj.__html__()
+        return super(Markup, cls).__new__(cls, obj, **kwargs)
+
+    def __html__(self):
+        return self
+
+    def __unicode__(self):
+        return self
+
+    def __repr__(self):
+        return 'Markup(%s)' % super(Markup, self).__repr__()
+
+
+class utils(object):
+
+    HTML = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
+                  '"http://www.w3.org/TR/html4/strict.dtd">')
+    markup = Markup
 ############# API END
 
 class Printer(ast.NodeVisitor):
