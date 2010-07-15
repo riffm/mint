@@ -178,13 +178,24 @@ UNSAFE_CHARS = '&<>"'
 CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
 UNSAFE_CHARS_ENTITIES = [(k, CHARS_ENTITIES[k]) for k in UNSAFE_CHARS]
 UNSAFE_CHARS_ENTITIES.append(("'",'&#39;'))
+UNSAFE_CHARS_ENTITIES_REVERSED = [(v,k) for k,v in UNSAFE_CHARS_ENTITIES]
 
 
-def escape(obj):
+def escape(obj, ctx='tag'):
     if hasattr(obj, '__html__'):
-        return obj.__html__()
+        if ctx == 'tag':
+            return obj.__html__()
+        else:
+            return escape(unescape(obj))
     text = unicode(obj)
     for k, v in UNSAFE_CHARS_ENTITIES:
+        text = text.replace(k, v)
+    return text
+
+
+def unescape(obj):
+    text = unicode(obj)
+    for k, v in UNSAFE_CHARS_ENTITIES_REVERSED:
         text = text.replace(k, v)
     return text
 
@@ -193,8 +204,8 @@ class TextNode(object):
     '''Simple node, represents text'''
 
     def __init__(self, value, escaping=True, lineno=None, col_offset=None, level=None):
-        #TODO: remove this checking, use Markup instead
         if escaping:
+            #value = unescape(value)
             self.value = escape(value)
         else:
             self.value = value
@@ -219,10 +230,11 @@ class TextNode(object):
 class ExprNode(object):
     '''Simple node, represents python expression'''
 
-    def __init__(self, value, lineno=None, col_offset=None):
+    def __init__(self, value, lineno=None, col_offset=None, ctx='tag'):
         self.value = value
         self.lineno = lineno
         self.col_offset = col_offset
+        self.ctx = ctx
 
     def to_ast(self, writer_name):
         unicode_call = ast.Call(func=ast.Name(id='unicode', ctx=Load(), 
@@ -233,7 +245,10 @@ class ExprNode(object):
         value = ast.Call(func=ast.Name(id=ESCAPE_HELLPER, ctx=Load(), 
                                        lineno=self.lineno, col_offset=self.col_offset),
                          args=[unicode_call],
-                         keywords=[], starargs=None, kwargs=None,
+                         keywords=[ast.keyword(arg='ctx', value=ast.Str(s=self.ctx, 
+                                                   lineno=self.lineno, 
+                                                   col_offset=self.col_offset))], 
+                         starargs=None, kwargs=None,
                          lineno=self.lineno, col_offset=self.col_offset)
         return ast.Expr(value=ast.Call(func=ast.Name(id=writer_name, ctx=Load(), 
                                                      lineno=self.lineno, col_offset=self.col_offset),
@@ -830,7 +845,7 @@ class Parser(object):
             return []
         # @div.class( {{ expr }})
         if last_state is TagAttrExpressionState and state is EndTagAttrState:
-            self.add_expression(data[1:-1])
+            self.add_expression(data[1:-1], ctx='attr')
             self.pop_stack()
             return []
         # @div.class( text {{ expr }})
@@ -839,7 +854,7 @@ class Parser(object):
             return []
         # @div.class({{ expr }} text )
         if last_state is TagAttrExpressionState and state is TagAttrTextState:
-            self.add_expression(data[1:-1])
+            self.add_expression(data[1:-1], ctx='attr')
             return []
         # @div.attr(value)\n
         if last_state is EndTagAttrState and state is not TagAttrState:
@@ -892,10 +907,10 @@ class Parser(object):
         self.ctx.nodes.append(TextNode(u''.join([v[1] for v in data ]), 
                                        lineno=self.lineno, col_offset=self.col_offset))
 
-    def add_expression(self, data):
+    def add_expression(self, data, ctx='tag'):
         #print 'add expression:', ''.join((v[1] for v in data ))
         self.ctx.nodes.append(ExprNode(u''.join([v[1] for v in data ]).lstrip(), 
-                              lineno=self.lineno, col_offset=self.col_offset))
+                              lineno=self.lineno, col_offset=self.col_offset, ctx=ctx))
 
     def add_attr_name(self, data):
         #print 'add attr name:', data
@@ -1049,12 +1064,7 @@ class Loader(object):
         return self
 
 
-#TODO: implement normal, smart markup class.
-#      There is 2 escaping contexts
-#      - inside tag
-#      - inside tag attribute
-#
-#      Implement string (unicode) interface
+#TODO: Implement string (unicode) interface
 class Markup(unicode):
 
     def __new__(cls, obj=u'', **kwargs):
@@ -1074,9 +1084,61 @@ class Markup(unicode):
 
 class utils(object):
 
-    HTML = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
-                  '"http://www.w3.org/TR/html4/strict.dtd">')
+    HTML_STRICT = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
+                         '"http://www.w3.org/TR/html4/strict.dtd">')
+    HTML_TRANSITIONAL = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" '
+                               '"http://www.w3.org/TR/html4/loose.dtd">')
+    XHTML_STRICT = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
+                          '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">')
+    XHTML_TRANSITIONAL = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" '
+                                '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">')
+    HTML5 = Markup('<!DOCTYPE html>')
     markup = Markup
+
+    @staticmethod
+    def loop(iterable):
+        return Looper(iterable)
+
+
+class Looper:
+    'Cool class taken from PPA project'
+    class _Item:
+        def __init__(self, index, has_next):
+            self.index = index
+            self.has_next = has_next
+            self.last = not has_next
+            self.first = not index
+        @property
+        def odd(self):
+            return self.index % 2
+        @property
+        def even(self):
+            return not self.index % 2
+        def cycle(self, *args):
+            'Magic method (adopted ;)'
+            return args[self.index % len(args)]
+
+    def __init__(self, iterable):
+        self._iterator = iter(iterable)
+
+    def _shift(self):
+        try:
+            self._next = self._iterator.next()
+        except StopIteration:
+            self._has_next = False
+        else:
+            self._has_next = True
+
+    def __iter__(self):
+        self._shift()
+        index = 0
+        while self._has_next:
+            value = self._next
+            self._shift()
+            yield value, self._Item(index, self._has_next)
+            index += 1
+
+
 ############# API END
 
 class Printer(ast.NodeVisitor):
