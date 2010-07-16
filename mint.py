@@ -1085,20 +1085,24 @@ class Markup(unicode):
 
 class utils(object):
 
-    HTML_STRICT = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
-                         '"http://www.w3.org/TR/html4/strict.dtd">')
-    HTML_TRANSITIONAL = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" '
-                               '"http://www.w3.org/TR/html4/loose.dtd">')
-    XHTML_STRICT = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
-                          '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">')
-    XHTML_TRANSITIONAL = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" '
-                                '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">')
-    HTML5 = Markup('<!DOCTYPE html>')
+    DT_HTML_STRICT = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
+                            '"http://www.w3.org/TR/html4/strict.dtd">')
+    DT_HTML_TRANSITIONAL = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 '
+                      'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">')
+    DT_XHTML_STRICT = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
+                             '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">')
+    DT_XHTML_TRANSITIONAL = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 '
+    'Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">')
+    DT_HTML5 = Markup('<!DOCTYPE html>')
     markup = Markup
 
     @staticmethod
     def loop(iterable):
         return Looper(iterable)
+
+    @staticmethod
+    def entity(char):
+        return CHARS_ENTITIES.get(char, char)
 
 
 class Looper:
