@@ -3,16 +3,27 @@ mint
 ====
 
 - about_
+
 - usage_
+
 - syntax_
+
   - tags_
+
   - attributes_
+
   - escaping_
+
   - python expressions_
+
   - loops_
+
   - conditions_
+
   - comments_
+
 - inheritance_
+
 - utils_
 
 
@@ -286,12 +297,12 @@ To comment a line use token ``--``::
     @div.id(content)
 
 Sometimes you need to use special tokens in text, so if a line starts with 
-token ``\`` line is not interpreted by **mint**.
+token ``\`` line is not interpreted by **mint**.::
 
     @p.class(title) Here we have title
     \@p.class(title) Here we have title
 
-Will provide
+Will provide::
 
     <p class="title">Here we have title</p>
     @p.class(title) Here we have title
