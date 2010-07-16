@@ -34,7 +34,9 @@ about
 -----
 
 **mint** - is small, fast and easy to use (x)html templates engine.
-Implemented with python language. Goodies of **mint**:
+Implemented with python language. 
+
+Why to use **mint**?:
 
 single python module
     You can copy ``mint.py`` to your project package and use it.
@@ -55,10 +57,10 @@ smart
 
 not standing on your way
     **mint** does't hide exceptions like some other template engines, and shows line
-    your template where exception was raised
+    in your template file where exception was raised
 
 Template engine was inspired by haml (a template engine written in ruby),
-but some concepts were redisigned due to simplification and adoptation to python world.
+but some concepts were redisigned for simplification and adoptation to python world.
 
 
 .. _usage:
@@ -81,7 +83,7 @@ syntax
 ------
 
 **mint** syntax is based on indention, so you see document structure and 
-update document fast. Because you can move blocks of code and do not search for
+update document fast. You can move blocks of code and do not search for
 begining of parent tag and where it ends.
 
 
@@ -90,7 +92,7 @@ begining of parent tag and where it ends.
 tags
 ----
 
-To define a tag just use ``@`` char before tag name::
+Just use ``@`` character before tag name to render a tag::
 
     @tagname
 
@@ -103,7 +105,8 @@ Next example shows tags structure::
         @head
         @body
 
-Indented tags head and body are children for tag html (parent tag).
+Indented tags ``@head`` and ``@body`` are children for tag ``@html`` (parent tag).
+
 Text is interpreted as text::
 
     @div
@@ -137,7 +140,7 @@ Previouse example will be rendered as::
 
     <div id="content"></div>
 
-Note that there is no difference between whitespace in attribute value::
+Note that all whitespaces at the begining and the end of attribute value are ignored::
 
     @div.id(content)
     @div.id( content)
@@ -170,14 +173,13 @@ escaping
 
 As you know there are some chars we need to escape in xml.
 And **mint** do this automaticly for you. It escapes all text inside tags and attributes.
-For now moment autoescaping can not be switched off. 
-But there is solution to this problem. So: ::
+Autoescaping can not be switched off::
 
     @a.href(/docs?type=1&published=true) docs
     @p.class( ' " < > & )
         <div class="inside" />
 
-Previouse example will be rendered as::
+Will be rendered as::
 
     <a href="/docs?type=1&amp;published=true">docs</a>
     <p class="&#39; &quot; &lt; &gt; &amp;">
@@ -190,7 +192,7 @@ Previouse example will be rendered as::
 python expressions
 ------------------
 
-Of course, template engine with out possibility to insert python expressions is unusable.
+Of course, template engine without possibility to insert python expressions is unusable.
 So in **mint** you can do this with syntax similar to ``jinja2`` or ``django``::
 
     @html
@@ -200,13 +202,13 @@ So in **mint** you can do this with syntax similar to ``jinja2`` or ``django``::
             @div.id(content)
                 Here we have content {{ doc.content }}
 
-Under the hood **mint** calls ``unicode`` on inserted python expressions 
+Under the hood **mint** calls ``unicode`` on python expression
 and escapes result.
 
-Note that you can provide any valid python expression inside tokens ``{{`` ``}}``.
+Note that you can provide any valid python expression between tokens ``{{`` ``}}``.
 Also note that you can use limited subset of python ``__builtins__``.
 
-In **mint** templates expressions can be used inside text elements and inside attributes.::
+In **mint** templates expressions can be used inside text elements and inside attributes::
 
     @p.class(title {{ doc.main_doc_class }}).id({{ doc.id }}) {{ doc.body }}
 
@@ -219,9 +221,9 @@ In previouse example if ``doc.body`` has html we need attribute ``body`` to retu
 ``mint.Markup(html_string)``. And that ``html_string`` will be inserted in template
 with out escaping. That is the prefered way to insert markup inside html template.
 
-Also note that there are two context to insert markup - tag and attribute.
+Also note that there are two contexts to insert markup - tag and attribute.
 In case of tag ``mint.Markup`` instances will be inserted without modifications.
-But if you attemed to insert markup in attribute it will be additional escaped.
+But if you attemted to insert markup in attribute it will be additionaly escaped.
 
 For example we have such python code::
 
@@ -254,7 +256,7 @@ This feature of **mint** is very handy.
 loops
 -----
 
-In **mint** you can use python statement ``for``.::
+In **mint** you can use python statement ``for``::
 
     @ul
         #for img in images:
@@ -293,11 +295,11 @@ comments
 
 To comment a line use token ``--``::
 
-    -- In this div we provide content, yours K.O.
+    -- In this div we provide content, yours C.O.
     @div.id(content)
 
 Sometimes you need to use special tokens in text, so if a line starts with 
-token ``\`` line is not interpreted by **mint**.::
+token ``\`` line is not interpreted by **mint**::
 
     @p.class(title) Here we have title
     \@p.class(title) Here we have title
@@ -316,7 +318,7 @@ inheritance
 -----------
 
 **mint** uses slots to implement template inheritance. Slot is nothing more but
-python functions. Slot can be defined and called anywhere in template.::
+python function. Slot can be defined and called anywhere in template::
 
     -- layout.mint
     @html
@@ -351,7 +353,7 @@ Slots are python functions, so they see all global variables passed to template 
 own scope. This is very handy, because sometimes people have problems with such things 
 in other templates engines.
 
-For example we need to block inside ``for`` loop::
+For example we need a block inside ``for`` loop::
 
     -- layout.mint
     @div.id(content)
@@ -366,7 +368,7 @@ For example we need to block inside ``for`` loop::
         @img.alt().src({{ item.image.path }})
 
 For **mint** it is natural behavior. And ``item`` is just global variable for 
-slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly.::
+slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly::
 
     -- layout.mint
     @div.id(content)
@@ -402,7 +404,7 @@ Class ``mint.Markup`` is ``utils.markup`` (this is replacement for hack ``{{ var
 
 ``utils.loop`` is helper function to use with ``for`` statement. It takes iterable 
 object and returns tuple of item and special object that consist of useful info for each
-iteration.::
+iteration::
 
     #for item, l in utils.loop(items):
         @a.href({{ item.url }})
