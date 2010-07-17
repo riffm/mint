@@ -22,6 +22,8 @@ mint
 
   - comments_
 
+  - simplification_
+
 - inheritance_
 
 - utils_
@@ -217,7 +219,7 @@ And that is good, but sometimes wee need to insert html and do not escape it.
 For this purpose mint uses special class ``mint.Markup``, which implements interface of
 ``__html__`` method (this is something like convention). To insert html inside templates you need to mark you python variables with ``mint.Markup`` inside your python code.
 
-In previouse example if ``doc.body`` has html we need attribute ``body`` to return 
+In previous example if ``doc.body`` has html we need attribute ``body`` to return 
 ``mint.Markup(html_string)``. And that ``html_string`` will be inserted in template
 with out escaping. That is the prefered way to insert markup inside html template.
 
@@ -310,6 +312,50 @@ Will provide::
     @p.class(title) Here we have title
 
 
+.. _simplification:
+
+simplification
+--------------
+
+Simplification of syntax provide ambiguity. But it is very handy sometimes.
+In **mint** templates you can write such things::
+
+    @ul
+        #for image in images:
+            @li.class(image) @img.alt().src({{ image.path }})
+
+This simplification alows to write nested tags in one line, one by one. In
+previous example all ``img`` tags will be inside ``li``.
+
+Remember rule #1: This records::
+
+    @div.id(1) @div.id(2) @div.id(3)
+
+    @div.id(1) 
+        @div.id(2) @div.id(3)
+
+    @div.id(1) 
+        @div.id(2) 
+            @div.id(3)
+
+are the same.
+
+Rule #2: you can append text to and only to last tag when you use syntax
+simplification::
+
+    @ul
+        #for doc in docs:
+            @li @p.class(title) {{ doc.title }}
+                @p.class(descr) {{ doc.description }}
+
+``li`` will be rendered as::
+
+    <li>
+        <p class="title">...</p>
+        <p class="descr">...</p>
+    </li>
+
+Be careful when using syntax simplification.
 
 .. _inheritance:
 
@@ -335,7 +381,7 @@ python function. Slot can be defined and called anywhere in template::
 
             @div.id(footer)
 
-As you can see in previouse example we define slot ``content`` and call it after that.
+As you can see in previous example we define slot ``content`` and call it after that.
 During call of slot it's content will be inserted in template. And if we need to insert
 different content in that place we should inherit ``layout.mint`` and override ``content``
 slot implementation::
@@ -410,7 +456,7 @@ iteration::
         @a.href({{ item.url }})
             {{ item. title }} {{ (l.first, l.last, l.odd) }} {{ l.cycle('one', 'two', 'three') }}
 
-In previouse example ``l.cycle('one', 'two', 'three')`` will return one of values provided
+In previous example ``l.cycle('one', 'two', 'three')`` will return one of values provided
 in sequence. It is handy to colorize tables.
 
 That's all folks!
