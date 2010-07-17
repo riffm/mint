@@ -1,4 +1,4 @@
-{{ utils.HTML5 }}
+{{ utils.DT_HTML5 }}
 @html
     @head
         @title {{ a }}
@@ -6,7 +6,7 @@
         -- first div
         @div.id(content)
             #def content(arg, arg1='arg1'):
-                {{ for StopIteration }}
+                {{ arg1 }}
                 @p.class(slot)
                     Slot text {{ arg }}
                 @b

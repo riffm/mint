@@ -319,11 +319,9 @@ class TagNode(object):
                 nodes_list += attr.to_list()
         if self.name in self._selfclosed:
             nodes_list.append(TextNode(u' />\n', escaping=False))
-            if self.nodes:
-                raise TemplateError('Tag "%s" can not have childnodes' % self.name)
-            return []
-        else:
-            if self.name:
+            #XXX: all child nodes of selfclosed tags are ignored
+            return nodes_list
+        elif self.name:
                 nodes_list.append(TextNode(u'>\n', escaping=False))
 
         # collect other nodes
@@ -772,7 +770,7 @@ class Parser(object):
             state = last_state.accept(token)
             # if state changed, we need to process data
             if state is not last_state:
-                #print last_state.__name__, token, state.__name__#, state_data
+                #print last_state.__name__, token, state.__name__, state_data
                 state_data = self.process(last_state, state, state_data)
                 last_state = state
 
