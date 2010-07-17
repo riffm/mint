@@ -239,7 +239,7 @@ For example we have such python code::
 And such template::
 
     @div.class(doc)
-        @p.class(title).title({{ doc.title }}) doc.title
+        @p.class(title).title({{ doc.title }}) {{ doc.title }}
         {{ doc.body }}
 
 The result will be::
