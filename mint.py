@@ -899,7 +899,6 @@ class Parser(object):
 
     def add_tag(self, data):
         #print 'add tag:', ''.join((v[1] for v in data ))
-        print data
         t, val = data[0]
         node = TagNode(val, self.level)
         self.ctx.nodes.append(node)
