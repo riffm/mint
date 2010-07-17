@@ -606,7 +606,8 @@ class EndTagAttrState(State):
     variantes = [
         (TOKEN_DOT, 'TagAttrState'),
         (TOKEN_NEWLINE, 'InitialState'),
-        (TOKEN_WHITESPACE, 'TextState'),
+        (TOKEN_WHITESPACE, 'EndTagState'),
+        (all_tokens, 'TextState'),
     ]
 
 
@@ -614,6 +615,8 @@ class EndTagState(State):
     variantes = [
         (TOKEN_TAG_START, 'TagState'),
         (TOKEN_EXPRESSION_START, 'ExpressionState'),
+        (TOKEN_WHITESPACE, ),
+        (TOKEN_NEWLINE, 'InitialState'),
         (all_tokens, 'TextState'),
     ]
 
@@ -821,7 +824,7 @@ class Parser(object):
             self.add_expression(data[1:-1])
             return []
         # @div\n
-        if state is EndTagState:
+        if state is EndTagState and last_state is not EndTagAttrState:
             self.add_tag(data[1:])
             return []
         if state is InitialState and last_state is TagNameState:
@@ -896,6 +899,7 @@ class Parser(object):
 
     def add_tag(self, data):
         #print 'add tag:', ''.join((v[1] for v in data ))
+        print data
         t, val = data[0]
         node = TagNode(val, self.level)
         self.ctx.nodes.append(node)
