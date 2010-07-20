@@ -773,7 +773,11 @@ class Parser(object):
             if token is TOKEN_EOF:
                 break
             state_data.append((token, value))
-            state = last_state.accept(token)
+            try:
+                state = last_state.accept(token)
+            except WrongToken:
+                raise TemplateError('Syntax error at line %d, token "%s"' % (lineno, 
+                                                                             value))
             # if state changed, we need to process data
             if state is not last_state:
                 #print last_state.__name__, token, state.__name__, state_data
@@ -1347,7 +1351,7 @@ if __name__ == '__main__':
     template = Loader('.').get_template(template_name)
     parser = Parser()
     start = datetime.datetime.now()
-    parser.parse(tokens_list)
+    parser.parse(TokensStream(open(template_name, 'r')).tokenize())
     end = datetime.datetime.now()
     print 'PARSER:   %s s' % (end - start)
     start = datetime.datetime.now()
