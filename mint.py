@@ -264,9 +264,10 @@ class ExprNode(object):
 
 class AttrNode(object):
 
-    def __init__(self, name):
+    def __init__(self, name, append=False):
         self.name = TextNode(name)
         self.nodes = []
+        self.append = append
 
     def to_list(self):
         nodes_list = []
@@ -297,16 +298,10 @@ class TagNode(object):
         self.name = name
         self.nodes = []
         self._attrs = []
-        self._attrs_if = {}
         self.level = level
 
     def set_attr(self, node):
-        #TODO: we need to be sure that user did not set same attr
-        # twice
         self._attrs.append(node)
-
-    def set_attr_if(self, expr, name, value):
-        self._attrs_if[name] = value
 
     def to_list(self):
         nodes_list = []
@@ -316,6 +311,7 @@ class TagNode(object):
             nodes_list.append(TextNode(u'<%s' % self.name, escaping=False))
         if self._attrs:
             for attr in self._attrs:
+                # here we need to process attrs with same name
                 nodes_list += attr.to_list()
         if self.name in self._selfclosed:
             nodes_list.append(TextNode(u' />\n', escaping=False))
@@ -497,7 +493,7 @@ def merged_nodes(nodes_list):
 
 ############# PARSER
 #TODO
-# - Escaping
+# + Escaping
 # + "IF-ELIF-ELSE" statement
 # - "IF-ELIF-ELSE" templates error handling
 # + "FOR" statement
@@ -741,13 +737,20 @@ class Parser(object):
     @property
     def tree(self):
         module_tree = ast.Module(body=[
-            ast.Assign(targets=[ast.Name(id=self.OUTPUT_NAME, ctx=Store(), lineno=1, col_offset=0)], 
-                       value=ast.Call(func=ast.Name(id='StringIO', ctx=Load(), lineno=1, col_offset=0),
-                                      args=[], keywords=[], starargs=None, kwargs=None, lineno=1, col_offset=0),
+            ast.Assign(targets=[ast.Name(id=self.OUTPUT_NAME, ctx=Store(), 
+                                         lineno=1, col_offset=0)], 
+                       value=ast.Call(func=ast.Name(id='StringIO', ctx=Load(), 
+                                                    lineno=1, col_offset=0),
+                                      args=[], keywords=[], starargs=None, kwargs=None, 
+                                      lineno=1, col_offset=0),
                        lineno=1, col_offset=0),
-            ast.Assign(targets=[ast.Name(id=self.OUTPUT_WRITER, ctx=Store(), lineno=1, col_offset=0)], 
-                       value=ast.Attribute(value=ast.Name(id=self.OUTPUT_NAME, ctx=Load(), lineno=1, col_offset=0),
-                                           attr='write', ctx=Load(), lineno=1, col_offset=0),
+            ast.Assign(targets=[ast.Name(id=self.OUTPUT_WRITER, ctx=Store(), 
+                                         lineno=1, col_offset=0)], 
+                       value=ast.Attribute(value=ast.Name(id=self.OUTPUT_NAME, 
+                                                          ctx=Load(), lineno=1, 
+                                                          col_offset=0),
+                                           attr='write', ctx=Load(), lineno=1, 
+                                           col_offset=0),
                                  lineno=1, col_offset=0)], lineno=1, col_offset=0)
 
         # First we need to have slots in module_tree
