@@ -285,6 +285,48 @@ class AstWrapper(object):
 class TemplateError(Exception): pass
 class WrongToken(Exception): pass
 
+# NODES
+class Node(object):
+    def __repr__(self):
+        return '%s' % self.__class__.__name__
+
+
+class TextNode(Node):
+    def __init__(self, text):
+        self.text = text
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.text)
+
+
+class PythonExpressionNode(Node):
+    def __init__(self, text):
+        self.text = text
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.text)
+
+
+class TagAttrNode(Node):
+    def __init__(self, name, value=None, lineno=None, pos=None):
+        self.name = name
+        self.nodes = value or []
+        self.lineno = lineno
+        self.pos = pos
+    def __repr__(self):
+        return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.name, self.nodes)
+
+
+class TagNode(Node):
+    def __init__(self, name, attrs=None, lineno=None, pos=None):
+        self.name = name
+        self.attrs = attrs or []
+        self.nodes = []
+        self.lineno = lineno
+        self.pos = pos
+    def __repr__(self):
+        return '%s(%r, attrs=%r, nodes=%r)' % (self.__class__.__name__, self.name, self.attrs, self.nodes)
+
+# NODES END
+
 
 class RecursiveStack(object):
     def __init__(self):
@@ -300,9 +342,11 @@ class RecursiveStack(object):
 
     def push(self, item):
         self.stack.append(item)
+        return True
 
     def pop(self):
         return self.stack.pop()
+        return True
 
     def push_stack(self, new_stack):
         self.stacks.append(new_stack)
@@ -343,20 +387,22 @@ class Parser(object):
                 elif isinstance(variante, Parser):
                     variante.parse(itertools.chain([tok], tokens_stream), stack)
                     new_state = state
+                    #NOTE: tok still points to first token
 
             if new_state is None:
                 raise WrongToken('[%s] Unexpected token "%s(%s)" at %d line, pos %d' \
                         % (current_state, token, tok_value, lineno, pos))
             # process of new_state
             elif new_state != current_state:
-                #print current_state, new_state, token
+                #print current_state, '%s(%r)' % (token, tok_value), new_state
                 if new_state == 'end':
+                    callback(tok, stack)
                     break
                 current_state = new_state
                 variantes = self.states[current_state]
             # state callback
             callback(tok, stack)
-            #print 'After callback: ', stack
+            #print 'callback: ', stack
         if self.value_processor:
             self.value_processor(stack)
 
@@ -364,7 +410,7 @@ class Parser(object):
 # utils functions
 def get_tokens(s):
     my_tokens = []
-    while stack.current and isinstance(stack.current[0], BaseToken):
+    while stack.current and isinstance(stack.current, (list, tuple)):
         my_tokens.append(stack.pop())
     return reversed(my_tokens)
 
@@ -374,22 +420,17 @@ push = lambda t, s: s.push(t)
 pop_stack = lambda t, s: s.pop_stack()
 push_stack = lambda t, s: s.push_stack(s.current.nodes)
 
-#tag
-tag_name = lambda t, s: s.push('TagName: %s' % ''.join([t[1] for t in get_tokens(s)]))
-tag_attr_name = lambda t, s: s.push('TagAttrName: %s' % ''.join([t[1] for t in get_tokens(s)]))
-tag_attr_value = lambda t, s: s.push('TagAttrValue: %s' % ''.join([t[1] for t in get_tokens(s)]))
-tag_node = lambda t, s: s
 
 # data
-attr_data = lambda t, s: s
-py_expr = lambda t, s: s
-
-
+py_expr = lambda t, s: s.push(PythonExpressionNode(u''.join([t[1] for t in get_tokens(s)])))
+data_value = lambda t, s: s
+text_value = lambda t, s: s.push(TextNode(u''.join([t[1] for t in get_tokens(s)])))
+text_value_with_last = lambda t, s: s.push(t) and s.push(TextNode(u''.join([t[1] for t in get_tokens(s)])))
 attr_data_parser = Parser((
     ('start', (
-        (TOKEN_EXPRESSION_START, 'expr', skip),
-        (TOKEN_PARENTHESES_CLOSE, 'end', attr_data),
-        (all_tokens, 'start', push),
+        (TOKEN_EXPRESSION_START, 'expr', text_value),
+        (TOKEN_PARENTHESES_CLOSE, 'end', text_value),
+        (all_except(TOKEN_NEWLINE), 'start', push),
         )),
     ('expr', (
         (TOKEN_EXPRESSION_END, 'start', py_expr),
@@ -400,8 +441,8 @@ attr_data_parser = Parser((
 
 data_parser = Parser((
     ('start', (
-        (TOKEN_EXPRESSION_START, 'expr', skip),
-        (TOKEN_UNINDENT, 'end', pop_stack),
+        (TOKEN_EXPRESSION_START, 'expr', text_value),
+        (TOKEN_NEWLINE, 'end', text_value_with_last),
         (all_except(TOKEN_INDENT), 'start', push),
         )),
     ('expr', (
@@ -410,6 +451,32 @@ data_parser = Parser((
         )),
 ))
 
+
+#tag
+def tag_name(t, s):
+    if isinstance(s.current, (list, tuple)):
+        s.push(TagNode(u''.join([t[1] for t in get_tokens(s)])))
+
+tag_attr_name = lambda t, s: s.push(TagAttrNode(u''.join([t[1] for t in get_tokens(s)])))
+
+def tag_attr_value(t, s):
+    nodes = []
+    while not isinstance(s.current, TagAttrNode):
+        nodes.append(s.pop())
+    attr = s.current
+    attr.nodes = reversed(nodes)
+
+def tag_node(t, s):
+    attrs = []
+    while isinstance(s.current, TagAttrNode):
+        attrs.append(s.pop())
+    tag = s.pop()
+    if isinstance(tag, (list, tuple)):
+        tag = TagNode(tag[1], lineno=tag[2], pos=tag[3])
+    if attrs:
+        tag.attrs = attrs
+    s.push(tag)
+    s.push(t)
 
 tag_parser = Parser((
     ('start', (
@@ -427,6 +494,22 @@ tag_parser = Parser((
         )),
     ('attr_value', (
         (attr_data_parser, 'start', tag_attr_value),
+        )),
+))
+
+
+block_parser = Parser((
+    ('start', (
+        (TOKEN_TEXT, 'data', push),
+        (TOKEN_EXPRESSION_START, 'data', push),
+        (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_EOF, 'end', skip),
+        )),
+    ('data', (
+        (data_parser, 'start', data_value),
+        )),
+    ('tag', (
+        (tag_parser, 'start', skip),
         )),
 ))
 
@@ -809,6 +892,8 @@ if __name__ == '__main__':
 
     stack = RecursiveStack()
     #tag_parser.parse(tokenizer(template_name), stack)
-    for t in tokenizer(template_name):
-        print t
+    block_parser.parse(tokenizer(template_name), stack)
+    #for t in tokenizer(template_name):
+        #print t
+    import pprint
     print stack
