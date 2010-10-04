@@ -16,6 +16,7 @@ from os import path
 from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
+from xml.etree.ElementTree import TreeBuilder, tostring
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,18 @@ def indent_tokenizer(tokens_stream, indent=4):
     current_indent = 0
     for tok in tokens_stream:
         token, value, lineno, pos = tok
+        # backslashed line transfer
+        if token is TOKEN_BACKSLASH:
+            next_tok = tokens_stream.next()
+            next_token, next_value, next_lineno, next_pos = next_tok
+            if next_token is TOKEN_NEWLINE:
+                next_tok = tokens_stream.next()
+                while next_tok[0] in (TOKEN_WHITESPACE, TOKEN_NEWLINE):
+                    next_tok = tokens_stream.next()
+                # first not newline or whitespace token
+                yield next_tok
+                continue
+        # indenting and unindenting
         if token is TOKEN_NEWLINE:
             yield tok
             next_tok = tokens_stream.next()
@@ -220,7 +233,10 @@ def indent_tokenizer(tokens_stream, indent=4):
             continue
         yield tok
 
-tokenizer = lambda filename: indent_tokenizer(base_tokenizer(open(filename, 'r')))
+
+def tokenizer(fileobj):
+    return indent_tokenizer(
+            base_tokenizer(fileobj))
 
 
 
@@ -262,6 +278,7 @@ _selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
 
 class AstWrapper(object):
     def __init__(self, lineno, col_offset):
+        assert lineno is not None and col_offset is not None
         self.lineno = lineno
         self.col_offset = col_offset
     def __getattr__(self, name):
@@ -285,6 +302,15 @@ class AstWrapper(object):
 class TemplateError(Exception): pass
 class WrongToken(Exception): pass
 
+# variables names (we do not want to override user variables and vise versa)
+TREE_BUILDER = '__MINT_TREE_BUILDER__'
+TAG_START = '__MINT_TAG_START__'
+TAG_END = '__MINT_TAG_END__'
+DATA = '__MINT_DATA__'
+UNICODE = '__MINT__UNICODE__'
+ESCAPE_HELLPER = '__MINT_ESCAPE__'
+
+
 # NODES
 class Node(object):
     def __repr__(self):
@@ -292,36 +318,104 @@ class Node(object):
 
 
 class TextNode(Node):
-    def __init__(self, text):
-        self.text = text
+    def __init__(self, text, lineno=None, col_offset=None, ctx='tag'):
+        self.text = escape(text, ctx=ctx)
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[self.get_value()],
+                                         keywords=[], starargs=None, kwargs=None))
+
+    def get_value(self):
+        return self.ast_.Str(s=self.text)
+
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.text)
 
 
 class PythonExpressionNode(Node):
-    def __init__(self, text):
-        self.text = text
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text.strip()
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[self.get_value()],
+                                         keywords=[], starargs=None, kwargs=None))
+
+    def get_value(self):
+        ast_ = self.ast_
+        expr = ast.parse(self.text).body[0].value
+        return self.ast_.Call(func=ast_.Name(id=UNICODE),
+                              args=[expr],
+                              keywords=[], starargs=None, kwargs=None)
+
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.text)
 
 
 class TagAttrNode(Node):
-    def __init__(self, name, value=None, lineno=None, pos=None):
-        self.name = name
+    def __init__(self, name, value=None, lineno=None, col_offset=None):
+        self.name = escape(name)
         self.nodes = value or []
-        self.lineno = lineno
-        self.pos = pos
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def get_value(self):
+        ast_ = self.ast_
+        key = ast_.Str(s=self.name)
+        value = ast_.Str(s=u'')
+        nodes = list(self.nodes)
+        if nodes:
+            print nodes
+            value = ast_.Call(func=ast_.Attribute(value=ast_.Str(s=u''),
+                                                  attr='join'),
+                              args=[ast_.Tuple(elts=[n.get_value() for n in nodes])],
+                              keywords=[], starargs=None, kwargs=None)
+        return key, value
+
     def __repr__(self):
         return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.name, self.nodes)
 
 
 class TagNode(Node):
-    def __init__(self, name, attrs=None, lineno=None, pos=None):
+    def __init__(self, name, attrs=None, lineno=None, col_offset=None):
         self.name = name
         self.attrs = attrs or []
         self.nodes = []
-        self.lineno = lineno
-        self.pos = pos
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        name = '__node_%s' % id(self)
+        attrs = ast_.Dict(keys=[], values=[])
+        for a in self.attrs:
+            k, v = a.get_value()
+            attrs.keys.append(k)
+            attrs.values.append(v)
+        nodes = []
+        # tag start
+        node_start = ast_.Assign(targets=[ast_.Name(id=name, ctx=Store())],
+                           value=ast_.Call(func=ast_.Name(id=TAG_START),
+                                           args=[ast_.Str(s=escape(self.name)), attrs],
+                                           keywords=[], starargs=None, kwargs=None))
+        nodes.append(node_start)
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    nodes.append(i)
+            else:
+                nodes.append(result)
+        # tag end
+        node_end = ast_.Expr(value=ast_.Call(func=ast_.Name(id=TAG_END),
+                                             args=[ast_.Str(s=escape(self.name))],
+                                             keywords=[], starargs=None, kwargs=None))
+        nodes.append(node_end)
+        return nodes
+
     def __repr__(self):
         return '%s(%r, attrs=%r, nodes=%r)' % (self.__class__.__name__, self.name, self.attrs, self.nodes)
 
@@ -360,6 +454,9 @@ class RecursiveStack(object):
     def __repr__(self):
         return repr(self.stacks)
 
+    def __iter__(self):
+        return reversed(self.stack[:])
+
 
 class Parser(object):
     def __init__(self, states, value_processor=None):
@@ -394,7 +491,7 @@ class Parser(object):
                         % (current_state, token, tok_value, lineno, pos))
             # process of new_state
             elif new_state != current_state:
-                #print current_state, '%s(%r)' % (token, tok_value), new_state
+                print current_state, '%s(%r)' % (token, tok_value), new_state
                 if new_state == 'end':
                     callback(tok, stack)
                     break
@@ -402,7 +499,7 @@ class Parser(object):
                 variantes = self.states[current_state]
             # state callback
             callback(tok, stack)
-            #print 'callback: ', stack
+            print 'callback: ', stack
         if self.value_processor:
             self.value_processor(stack)
 
@@ -410,9 +507,10 @@ class Parser(object):
 # utils functions
 def get_tokens(s):
     my_tokens = []
-    while stack.current and isinstance(stack.current, (list, tuple)):
-        my_tokens.append(stack.pop())
-    return reversed(my_tokens)
+    while s.current and isinstance(s.current, (list, tuple)):
+        my_tokens.append(s.pop())
+    my_tokens.reverse()
+    return my_tokens
 
 # Callbacks are functions that takes token and stack
 skip = lambda t, s: None
@@ -422,10 +520,24 @@ push_stack = lambda t, s: s.push_stack(s.current.nodes)
 
 
 # data
-py_expr = lambda t, s: s.push(PythonExpressionNode(u''.join([t[1] for t in get_tokens(s)])))
+def py_expr(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(PythonExpressionNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
+
 data_value = lambda t, s: s
 text_value = lambda t, s: s.push(TextNode(u''.join([t[1] for t in get_tokens(s)])))
-text_value_with_last = lambda t, s: s.push(t) and s.push(TextNode(u''.join([t[1] for t in get_tokens(s)])))
+
+def text_value(t, s):
+    my_tokens = get_tokens(s)
+    if my_tokens:
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        s.push(TextNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
+
+def text_value_with_last(t, s):
+    s.push(t)
+    text_value(t, s)
+
 attr_data_parser = Parser((
     ('start', (
         (TOKEN_EXPRESSION_START, 'expr', text_value),
@@ -454,10 +566,16 @@ data_parser = Parser((
 
 #tag
 def tag_name(t, s):
-    if isinstance(s.current, (list, tuple)):
-        s.push(TagNode(u''.join([t[1] for t in get_tokens(s)])))
+    #if isinstance(s.current, (list, tuple)):
+    my_tokens = get_tokens(s)
+    if my_tokens:
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        s.push(TagNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
 
-tag_attr_name = lambda t, s: s.push(TagAttrNode(u''.join([t[1] for t in get_tokens(s)])))
+def tag_attr_name(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(TagAttrNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
 
 def tag_attr_value(t, s):
     nodes = []
@@ -471,13 +589,17 @@ def tag_node(t, s):
     while isinstance(s.current, TagAttrNode):
         attrs.append(s.pop())
     tag = s.pop()
+    # if there were no attrs
     if isinstance(tag, (list, tuple)):
-        tag = TagNode(tag[1], lineno=tag[2], pos=tag[3])
+        my_tokens = get_tokens(s)
+        my_tokens.append(tag)
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        tag = TagNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset)
     if attrs:
         tag.attrs = attrs
     s.push(tag)
-    if t[0] is not TOKEN_NEWLINE:
-        s.push(t)
+    #if t[0] not in (TOKEN_NEWLINE, TOKEN_WHITESPACE):
+        #s.push(t)
 
 tag_parser = Parser((
     ('start', (
@@ -505,16 +627,23 @@ def html_comment(t, s):
 
 block_parser = Parser((
     ('start', (
-        (TOKEN_TEXT, 'data', push),
-        (TOKEN_EXPRESSION_START, 'data', push),
+        (TOKEN_TEXT, 'text', push),
+        (TOKEN_EXPRESSION_START, 'expr', skip),
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_COMMENT, 'comment', skip),
         (TOKEN_INDENT, 'start', push_stack),
         (TOKEN_UNINDENT, 'start', pop_stack),
+        (TOKEN_NEWLINE, 'start', skip),
         (TOKEN_EOF, 'end', skip),
         )),
-    ('data', (
-        (data_parser, 'start', data_value),
+    ('text', (
+        (TOKEN_EXPRESSION_START, 'expr', text_value),
+        (TOKEN_NEWLINE, 'start', text_value_with_last),
+        (all_except(TOKEN_INDENT), 'text', push),
+        )),
+    ('expr', (
+        (TOKEN_EXPRESSION_END, 'text', py_expr),
+        (all_tokens, 'expr', push),
         )),
     ('tag', (
         (tag_parser, 'start', skip),
@@ -525,6 +654,35 @@ block_parser = Parser((
         )),
 ))
 
+
+class MintParser(object):
+    def __init__(self, indent=4, slots=None):
+        self.indent = indent
+        self.slots = slots or {}
+
+    def parse(self, tokens_stream):
+        ast_ = AstWrapper(1,0)
+        module = ast_.Module(body=[
+            ast_.Assign(targets=[ast_.Name(id=TAG_START, ctx=Store())],
+                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
+                                             attr='start')),
+            ast_.Assign(targets=[ast_.Name(id=TAG_END, ctx=Store())],
+                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
+                                             attr='end')),
+            ast_.Assign(targets=[ast_.Name(id=DATA, ctx=Store())],
+                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
+                                             attr='data')),
+            ])
+        smart_stack = RecursiveStack()
+        block_parser.parse(tokens_stream, smart_stack)
+        for item in smart_stack.stack:
+            result = item.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    module.body.append(i)
+            else:
+                module.body.append(result)
+        return module
 
 ############# PARSER END
 
@@ -540,48 +698,34 @@ class Template(object):
         self.sourcefile = StringIO(sourcefile) if isinstance(sourcefile, basestring) else sourcefile
         self.filename = '<string>' if isinstance(sourcefile, basestring) else sourcefile.name
         self.need_caching = cache
-        # ast
-        self._tree = None
+        # cached compiled code
         self.compiled_code = None
         #self._loader = weakref.proxy(loader) if loader else None
         self._loader = loader
 
-    @property
-    def tree(self):
-        if self._tree is None:
-            tree = self.parse()
-            if self.need_caching:
-                self._tree = tree
-            return tree
-        else:
-            return self._tree
-
-    def parse(self, slots=None):
-        parser = Parser(indent=4, slots=slots)
-        stream = TokensStream(self.sourcefile)
-        parser.parse(stream.tokenize())
-        tree = parser.tree
-        # templates inheritance
-        if parser.base is not None:
-            base_template = self._loader.get_template(parser.base)
-            # one base template may have multiple childs, so
-            # every time we need to get base template tree again
-            tree = base_template.parse(slots=parser.slots)
+    def tree(self, slots=None):
+        parser = MintParser(indent=4, slots=slots)
+        tree = parser.parse(tokenizer(self.sourcefile))
+        # here we operate with base templates and so on
         return tree
 
     def compile(self):
-        compiled_souces = compile(self.tree, self.filename, 'exec')
-        if self.need_caching:
-            self.compiled_code = compiled_souces
-        return compiled_souces
+        return compile(self.tree(), self.filename, 'exec')
 
     def render(self, **kwargs):
-        if self.compiled_code is None:
-            code = self.compile()
+        if self.need_caching:
+            if self.compiled_code:
+                code = self.compiled_code
+            else:
+                code = self.compile()
+                self.compiled_code = code
         else:
-            code = self.compiled_code
-        ns = Parser.NAMESPACE.copy()
-        ns['utils'] = utils
+            code = self.compile()
+        ns = {
+            'utils':utils,
+            UNICODE:unicode,
+            ESCAPE_HELLPER:escape,
+        }
         builder = TreeBuilder()
         ns[TREE_BUILDER] = builder
         # NOTE: TreeBuilder will ignore first zero level elements
@@ -590,8 +734,8 @@ class Template(object):
         ns.update(kwargs)
         exec code in ns
         builder.end('root')
-        root = builder.close()
-        return u''.join([tostring(e) for e in root.getchildren()])
+        #XXX: this is ugly. to not show root element we slice result
+        return tostring(builder.close())[6:-7]
 
 
 class Loader(object):
@@ -901,10 +1045,7 @@ if __name__ == '__main__':
     from sys import argv
     import datetime
     template_name = argv[1]
-
-    stack = RecursiveStack()
-    #tag_parser.parse(tokenizer(template_name), stack)
-    block_parser.parse(tokenizer(template_name), stack)
-    #for t in tokenizer(template_name):
-        #print t
-    print stack
+    template = Loader('.').get_template(template_name)
+    printer = Printer()
+    printer.visit(template.tree())
+    print printer.src.getvalue()
