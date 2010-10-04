@@ -485,7 +485,8 @@ tag_parser = Parser((
         (TOKEN_MINUS, 'start', push),
         (TOKEN_COLON, 'start', push),
         (TOKEN_DOT, 'attr', tag_name),
-        (all_tokens, 'end', tag_node),
+        (TOKEN_WHITESPACE, 'end', tag_node),
+        (TOKEN_NEWLINE, 'end', tag_node),
         )),
     ('attr', (
         (TOKEN_TEXT, 'attr', push),
@@ -499,11 +500,17 @@ tag_parser = Parser((
 ))
 
 
+def html_comment(t, s):
+    s.push(TextNode(u'<!-- %s -->' % u''.join([t[1] for t in get_tokens(s)])))
+
 block_parser = Parser((
     ('start', (
         (TOKEN_TEXT, 'data', push),
         (TOKEN_EXPRESSION_START, 'data', push),
         (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_COMMENT, 'comment', skip),
+        (TOKEN_INDENT, 'start', push_stack),
+        (TOKEN_UNINDENT, 'start', pop_stack),
         (TOKEN_EOF, 'end', skip),
         )),
     ('data', (
@@ -511,6 +518,10 @@ block_parser = Parser((
         )),
     ('tag', (
         (tag_parser, 'start', skip),
+        )),
+    ('comment', (
+        (TOKEN_NEWLINE, 'start', html_comment),
+        (all_tokens, 'comment', push),
         )),
 ))
 
@@ -896,5 +907,4 @@ if __name__ == '__main__':
     block_parser.parse(tokenizer(template_name), stack)
     #for t in tokenizer(template_name):
         #print t
-    import pprint
     print stack
