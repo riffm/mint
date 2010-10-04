@@ -530,16 +530,15 @@ push_stack = lambda t, s: s.push_stack(s.current.nodes)
 def py_expr(t, s):
     my_tokens = get_tokens(s)
     lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
-    s.push(PythonExpressionNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
-
-data_value = lambda t, s: s
-text_value = lambda t, s: s.push(TextNode(u''.join([t[1] for t in get_tokens(s)])))
+    s.push(PythonExpressionNode(u''.join([t[1] for t in my_tokens]), 
+                                lineno=lineno, col_offset=col_offset))
 
 def text_value(t, s):
     my_tokens = get_tokens(s)
     if my_tokens:
         lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
-        s.push(TextNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
+        s.push(TextNode(u''.join([t[1] for t in my_tokens]), 
+                        lineno=lineno, col_offset=col_offset))
 
 def text_value_with_last(t, s):
     s.push(t)
@@ -577,12 +576,14 @@ def tag_name(t, s):
     my_tokens = get_tokens(s)
     if my_tokens:
         lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
-        s.push(TagNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
+        s.push(TagNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
 
 def tag_attr_name(t, s):
     my_tokens = get_tokens(s)
     lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
-    s.push(TagAttrNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset))
+    s.push(TagAttrNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
 
 def tag_attr_value(t, s):
     nodes = []
@@ -601,12 +602,11 @@ def tag_node(t, s):
         my_tokens = get_tokens(s)
         my_tokens.append(tag)
         lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
-        tag = TagNode(u''.join([t[1] for t in my_tokens]), lineno=lineno, col_offset=col_offset)
+        tag = TagNode(u''.join([t[1] for t in my_tokens]), 
+                      lineno=lineno, col_offset=col_offset)
     if attrs:
         tag.attrs = attrs
     s.push(tag)
-    #if t[0] not in (TOKEN_NEWLINE, TOKEN_WHITESPACE):
-        #s.push(t)
 
 tag_parser = Parser((
     ('start', (
@@ -630,7 +630,10 @@ tag_parser = Parser((
 
 
 def html_comment(t, s):
-    s.push(TextNode(u'<!-- %s -->' % u''.join([t[1] for t in get_tokens(s)])))
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(TextNode(Markup(u'<!-- %s -->' % u''.join([t[1] for t in my_tokens])), 
+                       lineno=lineno, col_offset=col_offset))
 
 block_parser = Parser((
     ('start', (
