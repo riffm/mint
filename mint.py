@@ -127,7 +127,7 @@ tokens = (
 
 all_tokens = list(tokens) + [TOKEN_EOF, TOKEN_TEXT, TOKEN_INDENT, TOKEN_UNINDENT]
 all_except = lambda *t: filter(lambda x: x not in t, all_tokens)
-
+re_comment = re.compile(r'\s*//')
 
 def base_tokenizer(fp):
     'Tokenizer. Generates tokens stream from text'
@@ -150,6 +150,9 @@ def base_tokenizer(fp):
         # now we tokinize line by line
         line = map.readline().decode('utf-8')
         line = line.replace('\n', '')
+        # ignoring non XML comments
+        if re_comment.match(line):
+            continue
 
         last_text = deque()
         while line:
