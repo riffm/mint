@@ -163,9 +163,6 @@ def base_tokenizer(fp):
                     if last_text:
                         yield TOKEN_TEXT, ''.join(last_text), lineno, pos - 1
                         last_text.clear()
-                    #if token is TOKEN_COMMENT:
-                    #    line=''
-                    #    break
                     offset, value = m.end(), m.group()
                     line = line[offset:]
                     yield token, value, lineno, pos
@@ -429,6 +426,34 @@ class TagNode(Node):
     def __repr__(self):
         return '%s(%r, attrs=%r, nodes=%r)' % (self.__class__.__name__, self.name, self.attrs, self.nodes)
 
+
+class ForStmtNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text
+        self.nodes = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        result = []
+        expr = self.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        value = ast.parse(expr).body[0]
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        return value
+
+    def __repr__(self):
+        return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.text, self.nodes)
 # NODES END
 
 
@@ -484,6 +509,8 @@ class Parser(object):
             for item in variantes:
                 variante, state, callback = item
                 # tokens sequence
+                if isinstance(variante, basestring):
+                    variante = globals().get(variante)
                 if isinstance(variante, (list, tuple)):
                     if token in variante:
                         new_state = state
@@ -497,11 +524,11 @@ class Parser(object):
                     #NOTE: tok still points to first token
 
             if new_state is None:
-                raise WrongToken('[%s] Unexpected token "%s(%s)" at %d line, pos %d' \
+                raise WrongToken('[%s] Unexpected token "%s(%r)" at line %d, pos %d' \
                         % (current_state, token, tok_value, lineno, pos))
             # process of new_state
             elif new_state != current_state:
-                #print current_state, '%s(%r)' % (token, tok_value), new_state
+                print current_state, '%s(%r)' % (token, tok_value), new_state
                 if new_state == 'end':
                     callback(tok, stack)
                     break
@@ -509,7 +536,7 @@ class Parser(object):
                 variantes = self.states[current_state]
             # state callback
             callback(tok, stack)
-            #print 'callback: ', stack
+            print 'callback: ', stack
         if self.value_processor:
             self.value_processor(stack)
 
@@ -611,14 +638,23 @@ def tag_node(t, s):
         tag.attrs = attrs
     s.push(tag)
 
+def tag_node_with_data(t, s):
+    tag_node(t, s)
+    push_stack(t, s)
+
+def nested_tag(t, s):
+    tag_node(t, s)
+    pop_stack(t, s)
+
 tag_parser = Parser((
     ('start', (
         (TOKEN_TEXT, 'start', push),
         (TOKEN_MINUS, 'start', push),
         (TOKEN_COLON, 'start', push),
         (TOKEN_DOT, 'attr', tag_name),
-        (TOKEN_WHITESPACE, 'end', tag_node),
+        (TOKEN_WHITESPACE, 'continue', tag_node_with_data),
         (TOKEN_NEWLINE, 'end', tag_node),
+        #(TOKEN_UNINDENT, 'end', pop_stack),
         )),
     ('attr', (
         (TOKEN_TEXT, 'attr', push),
@@ -629,7 +665,27 @@ tag_parser = Parser((
     ('attr_value', (
         (attr_data_parser, 'start', tag_attr_value),
         )),
+    ('continue', (
+        (TOKEN_TAG_START, 'nested_tag', skip),
+        (TOKEN_NEWLINE, 'end', pop_stack),
+        #NOTE: double pop
+        (data_parser, 'end', lambda t,s: [pop_stack(t, s) for i in range(2)]),
+        )),
+    ('nested_tag', (
+        ('nested_tag_parser', 'end', skip),
+        )),
 ))
+
+
+nested_tag_parser = Parser(dict(tag_parser.states, start=(
+        (TOKEN_TEXT, 'start', push),
+        (TOKEN_MINUS, 'start', push),
+        (TOKEN_COLON, 'start', push),
+        (TOKEN_DOT, 'attr', tag_name),
+        (TOKEN_WHITESPACE, 'continue', tag_node_with_data),
+        (TOKEN_NEWLINE, 'end', nested_tag),
+        )
+).iteritems())
 
 
 def html_comment(t, s):
@@ -638,11 +694,20 @@ def html_comment(t, s):
     s.push(TextNode(Markup(u'<!-- %s -->' % u''.join([t[1] for t in my_tokens])), 
                        lineno=lineno, col_offset=col_offset))
 
+def for_stmt(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(ForStmtNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
 block_parser = Parser((
     ('start', (
         (TOKEN_TEXT, 'text', push),
         (TOKEN_EXPRESSION_START, 'expr', skip),
         (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_STATEMENT_FOR, 'for_stmt', push),
+
         (TOKEN_COMMENT, 'comment', skip),
         (TOKEN_INDENT, 'start', push_stack),
         (TOKEN_UNINDENT, 'start', pop_stack),
@@ -664,6 +729,10 @@ block_parser = Parser((
     ('comment', (
         (TOKEN_NEWLINE, 'start', html_comment),
         (all_tokens, 'comment', push),
+        )),
+    ('for_stmt', (
+        (TOKEN_NEWLINE, 'start', for_stmt),
+        (all_tokens, 'for_stmt', push),
         )),
 ))
 
@@ -1091,3 +1160,5 @@ if __name__ == '__main__':
     printer = Printer()
     printer.visit(template.tree())
     print printer.src.getvalue()
+    #for t in tokenizer(open(template_name, 'r')):
+        #print t
