@@ -249,7 +249,9 @@ def tokenizer(fileobj):
 UNSAFE_CHARS = '&<>"'
 CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
 UNSAFE_CHARS_ENTITIES = [(k, CHARS_ENTITIES[k]) for k in UNSAFE_CHARS]
+UNSAFE_CHARS_ENTITIES_IN_ATTR = [(k, CHARS_ENTITIES[k]) for k in '<>"']
 UNSAFE_CHARS_ENTITIES.append(("'",'&#39;'))
+UNSAFE_CHARS_ENTITIES_IN_ATTR.append(("'",'&#39;'))
 UNSAFE_CHARS_ENTITIES_REVERSED = [(v,k) for k,v in UNSAFE_CHARS_ENTITIES]
 
 
@@ -258,7 +260,10 @@ def escape(obj, ctx='tag'):
         if ctx == 'tag':
             return obj.__html__()
         else:
-            return escape(unescape(obj))
+            text = obj.__html__()
+            for k, v in UNSAFE_CHARS_ENTITIES_IN_ATTR:
+                text = text.replace(k, v)
+            return text
     text = unicode(obj)
     for k, v in UNSAFE_CHARS_ENTITIES:
         text = text.replace(k, v)
@@ -319,7 +324,7 @@ class Node(object):
 
 class TextNode(Node):
     def __init__(self, text, lineno=None, col_offset=None, ctx='tag'):
-        self.text = escape(text, ctx=ctx)
+        self.text = text
         self.ast_ = AstWrapper(lineno, col_offset)
 
     def to_ast(self):
@@ -328,8 +333,8 @@ class TextNode(Node):
                                          args=[self.get_value()],
                                          keywords=[], starargs=None, kwargs=None))
 
-    def get_value(self):
-        return self.ast_.Str(s=self.text)
+    def get_value(self, ctx='tag'):
+        return self.ast_.Str(s=escape(self.text, ctx=ctx))
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.text)
@@ -346,12 +351,15 @@ class PythonExpressionNode(Node):
                                          args=[self.get_value()],
                                          keywords=[], starargs=None, kwargs=None))
 
-    def get_value(self):
+    def get_value(self, ctx='tag'):
         ast_ = self.ast_
         expr = ast.parse(self.text).body[0].value
-        return self.ast_.Call(func=ast_.Name(id=UNICODE),
-                              args=[expr],
-                              keywords=[], starargs=None, kwargs=None)
+        return ast_.Call(func=ast_.Name(id=ESCAPE_HELLPER),
+                         args=[ast_.Call(func=ast_.Name(id=UNICODE),
+                                        args=[expr],
+                                        keywords=[], starargs=None, kwargs=None)],
+                         keywords=[ast.keyword(arg='ctx', value=ast_.Str(s=ctx))], 
+                         starargs=None, kwargs=None)
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.text)
@@ -359,7 +367,7 @@ class PythonExpressionNode(Node):
 
 class TagAttrNode(Node):
     def __init__(self, name, value=None, lineno=None, col_offset=None):
-        self.name = escape(name)
+        self.name = escape(name, ctx='attr')
         self.nodes = value or []
         self.ast_ = AstWrapper(lineno, col_offset)
 
@@ -369,10 +377,9 @@ class TagAttrNode(Node):
         value = ast_.Str(s=u'')
         nodes = list(self.nodes)
         if nodes:
-            print nodes
             value = ast_.Call(func=ast_.Attribute(value=ast_.Str(s=u''),
                                                   attr='join'),
-                              args=[ast_.Tuple(elts=[n.get_value() for n in nodes])],
+                              args=[ast_.Tuple(elts=[n.get_value(ctx='attr') for n in nodes])],
                               keywords=[], starargs=None, kwargs=None)
         return key, value
 
@@ -491,7 +498,7 @@ class Parser(object):
                         % (current_state, token, tok_value, lineno, pos))
             # process of new_state
             elif new_state != current_state:
-                print current_state, '%s(%r)' % (token, tok_value), new_state
+                #print current_state, '%s(%r)' % (token, tok_value), new_state
                 if new_state == 'end':
                     callback(tok, stack)
                     break
@@ -499,7 +506,7 @@ class Parser(object):
                 variantes = self.states[current_state]
             # state callback
             callback(tok, stack)
-            print 'callback: ', stack
+            #print 'callback: ', stack
         if self.value_processor:
             self.value_processor(stack)
 
@@ -735,7 +742,36 @@ class Template(object):
         exec code in ns
         builder.end('root')
         #XXX: this is ugly. to not show root element we slice result
-        return tostring(builder.close())[6:-7]
+        return self.tostring(builder.close())[6:-7]
+
+    def tostring(self, node):
+        # This is updated for html purpose code
+        # from xml.etree.ElementTree
+        class dummy: pass
+        data = []
+        out = dummy()
+        out.write = data.append
+        tag = node.tag
+        items = node.items()
+        out.write(u'<' + tag)
+        if items:
+            items.sort() # lexical order
+            for k, v in items:
+                out.write(u' %s="%s"' % (k, v))
+        if node.text or len(node):
+            out.write(u'>')
+            if node.text:
+                # text must be escaped during tree building
+                out.write(node.text)
+            for n in node:
+                out.write(self.tostring(n))
+            out.write(u'</' + tag + '>')
+        else:
+            out.write(u' />')
+        if node.tail:
+            out.write(node.tail)
+        return u''.join(data)
+
 
 
 class Loader(object):
