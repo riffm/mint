@@ -476,7 +476,8 @@ def tag_node(t, s):
     if attrs:
         tag.attrs = attrs
     s.push(tag)
-    s.push(t)
+    if t[0] is not TOKEN_NEWLINE:
+        s.push(t)
 
 tag_parser = Parser((
     ('start', (
