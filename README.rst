@@ -36,7 +36,7 @@ about
 -----
 
 **mint** - is small, fast and easy to use (x)html templates engine.
-Implemented with python language. 
+Implemented with python language.
 
 Why to use **mint**?:
 
@@ -49,7 +49,7 @@ minimalistic syntax
 
 works fast
     **mint** uses ``ast`` python module from standard library 
-    (since 2.6, thank you Armin and co). So all templates compiles to optimized
+    (since python2.6, thank you Armin and co). So all templates compiles to optimized
     python byte code (during first call) which works fast.
 
 smart
@@ -77,6 +77,9 @@ API is simple::
     loader = mint.Loader('./templates', cache=True)
     namespace = dict(a='a', b='b')
     result = loder.get_template('index.mint').render(**namespace)
+
+``mint.Loader`` accepts names of directories and then search for template files
+by name provided in ``get_template(name)`` call.
 
 .. _syntax:
 
@@ -142,15 +145,6 @@ Previouse example will be rendered as::
 
     <div id="content"></div>
 
-Note that all whitespaces at the begining and the end of attribute value are ignored::
-
-    @div.id(content)
-    @div.id( content)
-    @div.id( content )
-    @div.id(content )
-
-All this examples will provide the same result.
-
 To define multiple attributes **mint** uses (so called) chaining::
 
     @img.alt().src(/img/my_picture.png)
@@ -167,6 +161,24 @@ Something like ``{alt:"", src:"/img/my_picture.png"}``
 Because it is overloaded for html templating. "Chained-methods-call" like 
 syntax uses less chars to type.
 
+**mint** alows to set/append value of tag attribute somewhere inside tag::
+
+    @div.class(main)
+        // set value of attribute
+        @.class(header)
+
+    @div.class(main)
+        // append value to attribute
+        @+class( header)
+
+will be rendered as::
+
+    <div class="header"></div>
+
+    <div class="main header"></div>
+
+This is very handy when you need to set content of tag and it's attributes based
+on some condition.
 
 .. _escaping:
 
@@ -273,6 +285,7 @@ is similar to::
     @li
         @img.src({{ img.file }})
 
+It is inline tags record.
 
 .. _conditions:
 
@@ -294,11 +307,20 @@ Conditions are easy to write too::
 
 comments
 --------
+To comment a line use token ``//``::
 
-To comment a line use token ``--``::
+    // In this div we provide content, yours C.O.
+    @div.id(content)
+
+Xml comments are supported, use token ``--``::
 
     -- In this div we provide content, yours C.O.
     @div.id(content)
+
+to get::
+
+    <!-- In this div we provide content, yours C.O. -->
+    <div id="content"></div>
 
 Sometimes you need to use special tokens in text, so if a line starts with 
 token ``\`` line is not interpreted by **mint**::
@@ -391,7 +413,7 @@ slot implementation::
 
     #def content():
         #for item in news:
-            @a.href({[ url_for('news-item', id=item.id) }}) {{ news.title }}
+            @a.href({{ url_for('news-item', id=item.id) }}) {{ news.title }}
 
 It is simple and powerful concept.
 
@@ -427,7 +449,6 @@ slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly
     #def loop_slot(item):
         @p.class(title) {{ item.title }}
         @img.alt().src({{ item.image.path }})
-
 
 
 .. _utils:

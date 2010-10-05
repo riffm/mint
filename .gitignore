@@ -1,6 +1,8 @@
 *.swp
 *.pyc
 *.swp
+*.diff
+*.mint
 build/
 dist/
 MANIFEST

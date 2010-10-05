@@ -11,16 +11,21 @@ import mmap
 import re
 import ast
 import htmlentitydefs
+import itertools
 from os import path
 from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
+from xml.etree.ElementTree import TreeBuilder, tostring
 
 logger = logging.getLogger(__name__)
 
 ############# LEXER
 
-class TokenWrapper(object):
+class BaseToken(object):
+    pass
+
+class TokenWrapper(BaseToken):
     '''
     Objects of this class reprezents tokens
     '''
@@ -38,17 +43,32 @@ class TokenWrapper(object):
 
     __repr__ = __str__
 
-class TextToken(object):
+
+class TextToken(BaseToken):
     'Special token for text'
     def __str__(self):
         return 'text'
     __repr__ = __str__
 
-class EOF(object):
+
+class TokenIndent(BaseToken):
+    def __str__(self):
+        return 'indent'
+    __repr__ = __str__
+
+
+class TokenUnindent(BaseToken):
+    def __str__(self):
+        return 'unindent'
+    __repr__ = __str__
+
+
+class EOF(BaseToken):
     'Special token'
     def __str__(self):
         return 'eof'
     __repr__ = __str__
+
 
 # constants
 TAG_CHAR = '@'
@@ -57,6 +77,8 @@ COMMENT_CHAR = '--'
 
 # Tokens
 TOKEN_TAG_START = TokenWrapper('tag_start', value=TAG_CHAR)
+TOKEN_TAG_ATTR_SET = TokenWrapper('tag_attr_set', value='%s.' % TAG_CHAR)
+TOKEN_TAG_ATTR_APPEND = TokenWrapper('tag_attr_append', value='%s+' % TAG_CHAR)
 TOKEN_BASE_TEMPLATE = TokenWrapper('base_template', value='%sbase: ' % STMT_CHAR)
 TOKEN_STATEMENT_IF = TokenWrapper('statement_if', value='%sif ' % STMT_CHAR)
 TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', value='%selif ' % STMT_CHAR)
@@ -67,6 +89,8 @@ TOKEN_STMT_CHAR = TokenWrapper('hash', value=STMT_CHAR)
 TOKEN_COMMENT = TokenWrapper('comment', value=COMMENT_CHAR)
 TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
 TOKEN_DOT = TokenWrapper('dot', value='.')
+TOKEN_PLUS = TokenWrapper('plus', value='+')
+TOKEN_MINUS = TokenWrapper('minus', value='-')
 TOKEN_COLON = TokenWrapper('colon', value=':')
 TOKEN_PARENTHESES_OPEN = TokenWrapper('parentheses_open', value='(')
 TOKEN_PARENTHESES_CLOSE = TokenWrapper('parentheses_close', value=')')
@@ -76,11 +100,13 @@ TOKEN_WHITESPACE = TokenWrapper('whitespace', regex_str=r'\s+')
 TOKEN_NEWLINE = TokenWrapper('newline', regex_str=r'(\r\n|\r|\n)')
 TOKEN_EOF = EOF()
 TOKEN_TEXT = TextToken()
+TOKEN_INDENT = TokenIndent()
+TOKEN_UNINDENT = TokenUnindent()
 
-
-#tokens = [v for v in locals().values() if isinstance(v, TokenWrapper)]
 
 tokens = (
+    TOKEN_TAG_ATTR_SET,
+    TOKEN_TAG_ATTR_APPEND,
     TOKEN_TAG_START,
     TOKEN_BASE_TEMPLATE,
     TOKEN_STATEMENT_IF,
@@ -92,6 +118,8 @@ tokens = (
     TOKEN_COMMENT,
     TOKEN_BACKSLASH,
     TOKEN_DOT,
+    TOKEN_PLUS,
+    TOKEN_MINUS,
     TOKEN_PARENTHESES_OPEN,
     TOKEN_PARENTHESES_CLOSE,
     TOKEN_EXPRESSION_START,
@@ -101,71 +129,124 @@ tokens = (
     TOKEN_NEWLINE,
 )
 
-all_tokens = list(tokens) + [TOKEN_EOF, TOKEN_TEXT]
-
+all_tokens = list(tokens) + [TOKEN_EOF, TOKEN_TEXT, TOKEN_INDENT, TOKEN_UNINDENT]
+all_except = lambda *t: filter(lambda x: x not in t, all_tokens)
 re_comment = re.compile(r'\s*//')
 
-class TokensStream(object):
+def base_tokenizer(fp):
     'Tokenizer. Generates tokens stream from text'
+    if isinstance(fp, StringIO):
+        map = fp
+        size = map.len
+    else:
+        map = mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ)
+        size = map.size()
+    lineno = 0
+    while 1:
+        lineno += 1
+        pos = 1
 
-    def __init__(self, fp):
-        self.fp = fp
-        self.current = None
+        # end of file
+        if map.tell() == size:
+            yield TOKEN_EOF, 'EOF', lineno, 0
+            break
 
-    def tokenize(self):
-        if isinstance(self.fp, StringIO):
-            map = self.fp
-            size = map.len
-        else:
-            map = mmap.mmap(self.fp.fileno(), 0, access=mmap.ACCESS_READ)
-            size = map.size()
-        lineno = 0
-        pos = 0
-        while 1:
-            lineno += 1
+        # now we tokinize line by line
+        line = map.readline().decode('utf-8')
+        line = line.replace('\n', '')
+        # ignoring non XML comments
+        if re_comment.match(line):
+            continue
 
-            # end of file
-            if map.tell() == size:
-                yield TOKEN_EOF, 'EOF', lineno, 0
-                break
+        last_text = deque()
+        while line:
+            line_len = len(line)
+            for token in tokens:
+                m = token.regex.match(line)
+                if m:
+                    if last_text:
+                        yield TOKEN_TEXT, ''.join(last_text), lineno, pos
+                        pos += len(last_text)
+                        last_text.clear()
+                    offset, value = m.end(), m.group()
+                    line = line[offset:]
+                    yield token, value, lineno, pos
+                    pos += offset
 
-            # now we tokinoxe line by line
-            line = map.readline().decode('utf-8')
-            line = line.replace('\n', '')
-            is_comment = re_comment.match(line)
-            if is_comment:
+            # we did not get right in tokens list, so next char is text
+            if line_len == len(line):
+                last_text.append(line[0])
+                line = line[1:]
+
+        if last_text:
+            yield TOKEN_TEXT, ''.join(last_text), lineno, pos
+            pos += len(last_text)
+            last_text.clear()
+        yield TOKEN_NEWLINE, '\n', lineno, pos
+
+    # all work is done
+    map.close()
+
+
+def indent_tokenizer(tokens_stream, indent=4):
+    current_indent = 0
+    for tok in tokens_stream:
+        token, value, lineno, pos = tok
+        # backslashed line transfer
+        if token is TOKEN_BACKSLASH:
+            next_tok = tokens_stream.next()
+            next_token, next_value, next_lineno, next_pos = next_tok
+            if next_token is TOKEN_NEWLINE:
+                next_tok = tokens_stream.next()
+                while next_tok[0] in (TOKEN_WHITESPACE, TOKEN_NEWLINE):
+                    next_tok = tokens_stream.next()
+                # first not newline or whitespace token
+                yield next_tok
                 continue
+            yield tok
+            tok = next_tok
+            token, value, lineno, pos = next_tok
+        # indenting and unindenting
+        if token is TOKEN_NEWLINE:
+            yield tok
+            next_tok = tokens_stream.next()
+            while next_tok[0] is TOKEN_NEWLINE:
+                next_tok = tokens_stream.next()
+            next_token, next_value, next_lineno, next_pos = next_tok
+            if next_token is TOKEN_WHITESPACE:
+                ws_count = len(next_value)
+                if ws_count >= indent:
+                    times = ws_count/indent
+                    rest = ws_count % indent
+                    range_ = times - current_indent
+                    if range_ > 0:
+                        # indenting
+                        for i in range(range_):
+                            yield TOKEN_INDENT, ' '*indent, next_lineno, next_pos
+                            current_indent += 1
+                    elif range_ < 0:
+                        # unindenting
+                        for i in range(abs(range_)):
+                            yield TOKEN_UNINDENT, ' '*indent, next_lineno, next_pos
+                            current_indent -= 1
+                    if rest:
+                        yield TOKEN_WHITESPACE, ' '*rest, lineno, pos
+                    continue
+            # next token is the whitespace lighter than indent or any other
+            # token, so unindenting to zero level
+            for i in range(current_indent):
+                yield TOKEN_UNINDENT, ' '*indent, next_lineno, next_pos
+            current_indent = 0
+            yield next_tok
+            # we do not yielding newline tokens
+            continue
+        yield tok
 
-            last_text = deque()
-            while line:
-                line_len = len(line)
-                for token in tokens:
-                    if line:
-                        m = token.regex.match(line)
-                        if m:
-                            if last_text:
-                                yield TOKEN_TEXT, ''.join(last_text), lineno, pos - 1
-                                last_text.clear()
-                            if token is TOKEN_COMMENT:
-                                line=''
-                                continue
-                            offset, value = m.end(), m.group()
-                            line = line[offset:]
-                            yield token, value, lineno, pos
-                            pos += offset
 
-                # we did not get right in tokens list, so next char is text
-                if line_len == len(line):
-                    last_text.append(line[0])
-                    line = line[1:]
+def tokenizer(fileobj):
+    return indent_tokenizer(
+            base_tokenizer(fileobj))
 
-            if last_text:
-                yield TOKEN_TEXT, ''.join(last_text), lineno, pos
-                last_text.clear()
-            yield TOKEN_NEWLINE, '\n', lineno, pos
-
-        # all work is done
-        map.close()
 
 
 ############# LEXER END
@@ -177,7 +258,9 @@ class TokensStream(object):
 UNSAFE_CHARS = '&<>"'
 CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
 UNSAFE_CHARS_ENTITIES = [(k, CHARS_ENTITIES[k]) for k in UNSAFE_CHARS]
+UNSAFE_CHARS_ENTITIES_IN_ATTR = [(k, CHARS_ENTITIES[k]) for k in '<>"']
 UNSAFE_CHARS_ENTITIES.append(("'",'&#39;'))
+UNSAFE_CHARS_ENTITIES_IN_ATTR.append(("'",'&#39;'))
 UNSAFE_CHARS_ENTITIES_REVERSED = [(v,k) for k,v in UNSAFE_CHARS_ENTITIES]
 
 
@@ -186,7 +269,10 @@ def escape(obj, ctx='tag'):
         if ctx == 'tag':
             return obj.__html__()
         else:
-            return escape(unescape(obj))
+            text = obj.__html__()
+            for k, v in UNSAFE_CHARS_ENTITIES_IN_ATTR:
+                text = text.replace(k, v)
+            return text
     text = unicode(obj)
     for k, v in UNSAFE_CHARS_ENTITIES:
         text = text.replace(k, v)
@@ -199,295 +285,21 @@ def unescape(obj):
         text = text.replace(k, v)
     return text
 
+from functools import partial
 
-class TextNode(object):
-    '''Simple node, represents text'''
-
-    def __init__(self, value, escaping=True, lineno=None, col_offset=None, level=None):
-        if escaping:
-            #value = unescape(value)
-            self.value = escape(value)
-        else:
-            self.value = value
-        # default values to lineno and col_offset
-        self.lineno = lineno if lineno else 1
-        self.col_offset = col_offset if col_offset else 1
-        self.level = level if level else 0
-
-    def to_ast(self, writer_name):
-        value = ast.Str(s=self.value, lineno=self.lineno, col_offset=self.col_offset)
-        return ast.Expr(value=ast.Call(func=ast.Name(id=writer_name, ctx=Load(), 
-                                                     lineno=self.lineno, col_offset=self.col_offset),
-                                       args=[value],
-                                       keywords=[], starargs=None, kwargs=None,
-                                       lineno=self.lineno, col_offset=self.col_offset),
-                        lineno=self.lineno, col_offset=self.col_offset)
-
-    def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.value)
+_selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
 
 
-class ExprNode(object):
-    '''Simple node, represents python expression'''
-
-    def __init__(self, value, lineno=None, col_offset=None, ctx='tag'):
-        self.value = value
+class AstWrapper(object):
+    def __init__(self, lineno, col_offset):
+        assert lineno is not None and col_offset is not None
         self.lineno = lineno
         self.col_offset = col_offset
-        self.ctx = ctx
-
-    def to_ast(self, writer_name):
-        unicode_call = ast.Call(func=ast.Name(id='unicode', ctx=Load(), 
-                                              lineno=self.lineno, col_offset=self.col_offset),
-                                args=[ast.parse(self.value).body[0].value],
-                                keywords=[], starargs=None, kwargs=None,
-                                lineno=self.lineno, col_offset=self.col_offset)
-        value = ast.Call(func=ast.Name(id=ESCAPE_HELLPER, ctx=Load(), 
-                                       lineno=self.lineno, col_offset=self.col_offset),
-                         args=[unicode_call],
-                         keywords=[ast.keyword(arg='ctx', value=ast.Str(s=self.ctx, 
-                                                   lineno=self.lineno, 
-                                                   col_offset=self.col_offset))], 
-                         starargs=None, kwargs=None,
-                         lineno=self.lineno, col_offset=self.col_offset)
-        return ast.Expr(value=ast.Call(func=ast.Name(id=writer_name, ctx=Load(), 
-                                                     lineno=self.lineno, 
-                                                     col_offset=self.col_offset),
-                                       args=[value],
-                                       keywords=[], starargs=None, kwargs=None,
-                                       lineno=self.lineno, col_offset=self.col_offset),
-                        lineno=self.lineno, col_offset=self.col_offset)
-
-    def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.value)
-
-
-class AttrNode(object):
-
-    def __init__(self, name, append=False):
-        self.name = TextNode(name)
-        self.nodes = []
-        self.append = append
-
-    def to_list(self):
-        nodes_list = []
-        nodes_list.append(TextNode(u' '))
-        nodes_list.append(self.name)
-        nodes_list.append(TextNode(u'="', escaping=False))
-        for node in self.nodes:
-            nodes_list.append(node)
-        nodes_list.append(TextNode(u'"', escaping=False))
-        return nodes_list
-
-    def __repr__(self):
-        return '%s(%s=%r)' % (self.__class__.__name__, self.name, self.nodes)
-
-
-class TagNode(object):
-    '''This class represents tag and can store tag attributes
-    and other nodes inside.
-
-    to_list() returns list of simple nodes like TextNode, ExprNode
-    List items are not merged, so you need to use merged_nodes(), to
-    get merged nodes generator.
-    '''
-
-    _selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
-
-    def __init__(self, name, level):
-        self.name = name
-        self.nodes = []
-        self._attrs = []
-        self.level = level
-
-    def set_attr(self, node):
-        self._attrs.append(node)
-
-    def to_list(self):
-        nodes_list = []
-
-        # open tag
-        if self.name:
-            nodes_list.append(TextNode(u'<%s' % self.name, escaping=False))
-        if self._attrs:
-            for attr in self._attrs:
-                # here we need to process attrs with same name
-                nodes_list += attr.to_list()
-        if self.name in self._selfclosed:
-            nodes_list.append(TextNode(u' />\n', escaping=False))
-            #XXX: all child nodes of selfclosed tags are ignored
-            return nodes_list
-        elif self.name:
-                nodes_list.append(TextNode(u'>\n', escaping=False))
-
-        # collect other nodes
-        for node in self.nodes:
-            if isinstance(node, self.__class__):
-                nodes_list += node.to_list()
-            else:
-                nodes_list.append(node)
-        # close tag
-        if self.name:
-            nodes_list.append(TextNode(u'</%s>\n' % self.name, escaping=False))
-        return nodes_list
-
-    def __repr__(self):
-        return '%s(%r, level=%r, nodes=%r, attrs=%r)' % (self.__class__.__name__,
-                                                         self.name, self.level,
-                                                         self.nodes, self._attrs)
-
-
-class ForStatementNode(object):
-
-    def __init__(self, expr, lineno, col_offset):
-        self.expr = expr
-        self.lineno = lineno
-        self.col_offset = col_offset
-        self.nodes = []
-
-    def to_ast(self, writer_name):
-        nodes = nodes_to_list(self.nodes)
-        expr = self.expr.strip()
-        if expr[-1] != ':':
-            expr += ':'
-        if expr.startswith('#'):
-            expr = expr[1:]
-        expr = expr + ' pass'
-        tree = ast.parse(expr).body[0]
-        # clear tree body from Pass()
-        tree.body = []
-        for node in merged_nodes(nodes):
-            tree.body.append(node.to_ast(writer_name))
-        return tree
-
-    def __repr__(self):
-        return '%s(%r, %r, %r)' % (self.__class__.__name__, self.expr,
-                                   self.lineno, self.col_offset)
-
-
-class IfStatementNode(object):
-
-    def __init__(self, expr, lineno, col_offset, orelse=None):
-        self.expr = expr
-        self.lineno = lineno
-        self.col_offset = col_offset
-        self.orelse = orelse if orelse is not None else []
-        self.nodes = []
-
-    def to_ast(self, writer_name):
-        expr = self.expr.strip()
-        if expr[-1] != ':':
-            expr += ':'
-        if expr.startswith('#'):
-            expr = expr[1:]
-        if expr.startswith('elif'):
-            expr = expr[2:]
-        expr = expr + ' pass'
-        tree = ast.parse(expr).body[0]
-        # clear tree body from Pass()
-        tree.body = []
-        nodes = nodes_to_list(self.nodes)
-        for node in merged_nodes(nodes):
-            tree.body.append(node.to_ast(writer_name))
-        for node in merged_nodes(nodes_to_list(self.orelse)):
-            if isinstance(node, self.__class__):
-                tree.orelse.append(node.to_ast(writer_name))
-            elif isinstance(node, StatementElse):
-                for n in merged_nodes(nodes_to_list(node.nodes)):
-                    tree.orelse.append(n.to_ast(writer_name))
-        return tree
-
-    def __repr__(self):
-        return '%s(%r, %r, %r, orelse=%r)' % (self.__class__.__name__, self.expr,
-                                              self.lineno, self.col_offset, self.orelse)
-
-
-class StatementElse(object):
-
-    def __init__(self):
-        self.nodes = []
-
-
-class SlotDefNode(object):
-
-    def __init__(self, expr, lineno, col_offset):
-        self.expr = expr
-        self.nodes = []
-        self.name = expr[4:expr.find('(')]
-        self.lineno = lineno
-        self.col_offset = col_offset
-
-    def to_ast(self, writer_name):
-        nodes = nodes_to_list(self.nodes)
-        expr = self.expr.strip()
-        if expr[-1] != ':':
-            expr += ':'
-        if expr.startswith('#'):
-            expr = expr[1:]
-        expr = expr + ' pass'
-        tree = ast.parse(expr).body[0]
-        # clear tree body from Pass()
-        tree.body = []
-        for node in merged_nodes(nodes):
-            tree.body.append(node.to_ast(writer_name))
-        return tree
-
-    def __repr__(self):
-        return '%s(%r, %r, %r)' % (self.__class__.__name__, self.expr,
-                           self.lineno, self.col_offset)
-
-
-class SlotCallNode(object):
-    '''Simple slot call, represents python function call'''
-
-    def __init__(self, value, lineno, col_offset):
-        self.value = value
-        self.lineno = lineno
-        self.col_offset = col_offset
-
-    def to_ast(self, writer_name):
-        return ast.parse(self.value).body[0]
-
-    def __repr__(self):
-        return '%s(%s)' % (self.__class__.__name__, self.value)
-
-
-def nodes_to_list(nodes, nodes_list=None):
-    if nodes_list is None:
-        nodes_list = []
-    for n in nodes:
-        if isinstance(n, TagNode):
-            nodes_list += n.to_list()
-        else:
-            nodes_list.append(n)
-    return nodes_list
-
-
-def merge(a, b):
-    if isinstance(a, TextNode) and isinstance(b, TextNode):
-        return TextNode(a.value+b.value, escaping=False)
-    return None
-
-
-def merged_nodes(nodes_list):
-    '''Returns generator of merged nodes.
-    nodes_list - list of simple nodes.'''
-    last = None
-    for n in nodes_list:
-        if last is not None:
-            result = merge(last, n)
-            if result is None:
-                yield last
-                last = n
-                continue
-            last = result
-        else:
-            last = n
-            continue
-    if last is not None:
-        yield last
-
-############# NODES END
+    def __getattr__(self, name):
+        attr = getattr(ast, name)
+        if not attr:
+            raise AttributeError(name)
+        return partial(attr, lineno=self.lineno, col_offset=self.col_offset, ctx=Load())
 
 
 
@@ -504,487 +316,800 @@ def merged_nodes(nodes_list):
 class TemplateError(Exception): pass
 class WrongToken(Exception): pass
 
-# States
-class State(object):
+# variables names (we do not want to override user variables and vise versa)
+TREE_BUILDER = '__MINT_TREE_BUILDER__'
+TAG_START = '__MINT_TAG_START__'
+TAG_END = '__MINT_TAG_END__'
+DATA = '__MINT_DATA__'
+UNICODE = '__MINT__UNICODE__'
+ESCAPE_HELLPER = '__MINT_ESCAPE__'
+CURRENT_NODE = '__MINT_CURRENT_NODE__'
 
-    @classmethod
-    def accept(cls, token):
-        for item in cls.variantes:
-            if len(item) == 2:
-                variante, new_state = item
-                new_state = globals().get(new_state)
+
+##### NODES
+
+class Node(object):
+    def __repr__(self):
+        return '%s' % self.__class__.__name__
+
+
+class BaseTemplate(ast.AST):
+    def __init__(self, name):
+        self.name = name
+
+    def to_ast(self):
+        return self
+
+
+class TextNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None, ctx='tag'):
+        self.text = text
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[self.get_value()],
+                                         keywords=[], starargs=None, kwargs=None))
+
+    def get_value(self, ctx='tag'):
+        return self.ast_.Str(s=escape(self.text, ctx=ctx))
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.text)
+
+
+class PythonExpressionNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text.strip()
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[self.get_value()],
+                                         keywords=[], starargs=None, kwargs=None))
+
+    def get_value(self, ctx='tag'):
+        ast_ = self.ast_
+        expr = ast.parse(self.text).body[0].value
+        return ast_.Call(func=ast_.Name(id=ESCAPE_HELLPER),
+                         args=[ast_.Call(func=ast_.Name(id=UNICODE),
+                                        args=[expr],
+                                        keywords=[], starargs=None, kwargs=None)],
+                         keywords=[ast.keyword(arg='ctx', value=ast_.Str(s=ctx))], 
+                         starargs=None, kwargs=None)
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.text)
+
+
+class TagAttrNode(Node):
+    def __init__(self, name, value=None, lineno=None, col_offset=None):
+        self.name = escape(name, ctx='attr')
+        self.nodes = value or []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def get_value(self):
+        ast_ = self.ast_
+        key = ast_.Str(s=self.name)
+        value = ast_.Str(s=u'')
+        nodes = list(self.nodes)
+        if nodes:
+            value = ast_.Call(func=ast_.Attribute(value=ast_.Str(s=u''),
+                                                  attr='join'),
+                              args=[ast_.Tuple(elts=[n.get_value(ctx='attr') for n in nodes])],
+                              keywords=[], starargs=None, kwargs=None)
+        return key, value
+
+    def __repr__(self):
+        return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.name, self.nodes)
+
+
+class SetAttrNode(Node):
+    def __init__(self, attr_node):
+        self.key, self.value = attr_node.get_value()
+        self.ast_ = attr_node.ast_
+
+    def to_ast(self):
+        ast_ = self.ast_
+        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                                            attr='set'),
+                                        args=[self.key, self.value],
+                                        keywords=[],
+                                        starargs=None, kwargs=None))
+
+
+class AppendAttrNode(Node):
+    def __init__(self, attr_node):
+        self.key, self.value = attr_node.get_value()
+        self.ast_ = attr_node.ast_
+
+    def to_ast(self):
+        ast_ = self.ast_
+        value = ast_.BinOp(
+            left=ast_.BoolOp(
+                values=[ast_.Call(
+                    func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                        attr='get'),
+                    args=[self.key],
+                    keywords=[],
+                    starargs=None, kwargs=None), ast_.Str(s=u'')],
+                op=ast.Or()),
+            op=ast.Add(), 
+            right=self.value)
+        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                                            attr='set'),
+                                        args=[self.key, value],
+                                        keywords=[],
+                                        starargs=None, kwargs=None))
+
+
+class TagNode(Node):
+    def __init__(self, name, attrs=None, lineno=None, col_offset=None):
+        self.name = name
+        self.attrs = attrs or []
+        self.nodes = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        name = CURRENT_NODE
+        attrs = ast_.Dict(keys=[], values=[])
+        for a in self.attrs:
+            k, v = a.get_value()
+            attrs.keys.append(k)
+            attrs.values.append(v)
+        nodes = []
+        # tag start
+        node_start = ast_.Assign(targets=[ast_.Name(id=name, ctx=Store())],
+                           value=ast_.Call(func=ast_.Name(id=TAG_START),
+                                           args=[ast_.Str(s=escape(self.name)), attrs],
+                                           keywords=[], starargs=None, kwargs=None))
+        nodes.append(node_start)
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    nodes.append(i)
             else:
-                variante, new_state = item[0], cls
-            if isinstance(variante, (list, tuple)):
-                if token in variante:
-                    return new_state
-            elif variante is token:
-                return new_state
-        msg = '"%s" got unexpected token "%s"' % (cls.__name__, token)
-        raise WrongToken(msg)
+                nodes.append(result)
+        # tag end
+        node_end = ast_.Expr(value=ast_.Call(func=ast_.Name(id=TAG_END),
+                                             args=[ast_.Str(s=escape(self.name))],
+                                             keywords=[], starargs=None, kwargs=None))
+        nodes.append(node_end)
+        return nodes
+
+    def __repr__(self):
+        return '%s(%r, attrs=%r, nodes=%r)' % (self.__class__.__name__, self.name, self.attrs, self.nodes)
 
 
-def AnyToken(exclude=None):
-    if exclude is None:
-        return tokens
-    else:
-        return [t for t in tokens if t not in exclude]
+class ForStmtNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text.strip()
+        self.nodes = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        result = []
+        expr = self.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        value = ast.parse(expr).body[0]
+        value.body = []
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        #XXX: if nodes is empty list raise TemplateError
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        return value
+
+    def __repr__(self):
+        return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.text, self.nodes)
 
 
-class InitialState(State):
-    variantes = [
-        (TOKEN_BASE_TEMPLATE, 'BaseTemplatesNameState'),
-        (TOKEN_SLOT_DEF, 'SlotDefState'),
-        (TOKEN_TAG_START , 'TagState'),
-        ((TOKEN_WHITESPACE, TOKEN_NEWLINE), ),
-        (TOKEN_EXPRESSION_START, 'ExpressionState'),
-        (TOKEN_BACKSLASH, 'EscapedTextLineState'),
-        (TOKEN_STATEMENT_FOR, 'StatementForState'),
-        (TOKEN_STATEMENT_IF, 'StatementIfState'),
-        (TOKEN_STATEMENT_ELIF, 'StatementElifState'),
-        (TOKEN_STATEMENT_ELSE, 'StatementElseState'),
-        (TOKEN_STMT_CHAR, 'SlotCallState'),
-        ((TOKEN_WHITESPACE, TOKEN_TEXT), 'TextState'),
-    ]
+class IfStmtNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text
+        self.nodes = []
+        self.orelse = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        result = []
+        expr = self.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        if expr.startswith('el'):
+            expr = expr[2:]
+        value = ast.parse(expr).body[0]
+        value.body = []
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        #XXX: if nodes is empty list raise TemplateError
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        for n in self.orelse:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.orelse.append(i)
+            else:
+                value.orelse.append(result)
+        return value
+
+    def __repr__(self):
+        return '%s(%r, nodes=%r, orelse=%r)' % (self.__class__.__name__, 
+                                                self.text, self.nodes,
+                                                self.orelse)
 
 
-class EscapedTextLineState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens, ),
-    ]
+class ElseStmtNode(Node):
+    def __init__(self, lineno=None, col_offset=None):
+        self.nodes = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        value = []
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.append(i)
+            else:
+                value.append(result)
+        return value
+
+    def __repr__(self):
+        return '%s(nodes=%r)' % (self.__class__.__name__, self.nodes)
 
 
-class TagState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (TOKEN_TEXT, 'TagNameState'),
-    ]
+class SlotDefNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text.strip()
+        self.nodes = []
+        self.ast_ = AstWrapper(lineno, col_offset)
 
-class TagNameState(State):
-    variantes = [
-        (TOKEN_DOT, 'TagAttrState'),
-        (TOKEN_WHITESPACE, 'EndTagState'),
-        (TOKEN_NEWLINE, 'InitialState'),
-    ]
+    def to_ast(self):
+        ast_ = self.ast_
+        result = []
+        expr = self.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        value = ast.parse(expr).body[0]
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        #XXX: if self.nodes is empty list raise TemplateError
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        return value
 
-
-class TagAttrState(State):
-    variantes = [
-        (TOKEN_TEXT, 'TagAttrNameState'),
-    ]
-
-
-class TagAttrNameState(State):
-    variantes = [
-        ((TOKEN_TEXT, TOKEN_COLON), ),
-        (TOKEN_PARENTHESES_OPEN, 'TagAttrTextState'),
-    ]
-
-
-class TagAttrTextState(State):
-    variantes = [
-        (TOKEN_PARENTHESES_CLOSE, 'EndTagAttrState'),
-        (TOKEN_EXPRESSION_START, 'TagAttrExpressionState'),
-        (all_tokens,),
-    ]
+    def __repr__(self):
+        return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.text, self.nodes)
 
 
-class TagAttrExpressionState(State):
-    variantes = [
-        #(TOKEN_PARENTHESES_CLOSE, 'EndTagAttrState'),
-        (TOKEN_EXPRESSION_END, 'TagAttrTextState'),
-        (all_tokens,),
-    ]
+class SlotCallNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text.strip()
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        expr = self.text
+        value = ast.parse(expr).body[0]
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        return value
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.text)
+
+##### NODES END
 
 
-class EndTagAttrState(State):
-    variantes = [
-        (TOKEN_DOT, 'TagAttrState'),
-        (TOKEN_NEWLINE, 'InitialState'),
-        (TOKEN_WHITESPACE, 'EndTagState'),
-        (all_tokens, 'TextState'),
-    ]
+class RecursiveStack(object):
+    'Stack of stacks'
+    def __init__(self):
+        self.stacks = [[]]
 
+    @property
+    def stack(self):
+        return self.stacks[-1]
 
-class EndTagState(State):
-    variantes = [
-        (TOKEN_TAG_START, 'TagState'),
-        (TOKEN_EXPRESSION_START, 'ExpressionState'),
-        (TOKEN_WHITESPACE, ),
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens, 'TextState'),
-    ]
+    @property
+    def current(self):
+        return self.stack and self.stack[-1] or None
 
+    def push(self, item):
+        self.stack.append(item)
+        return True
 
-class TextState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (TOKEN_EXPRESSION_START, 'ExpressionState'),
-        (all_tokens,),
-    ]
+    def pop(self):
+        return self.stack.pop()
+        return True
 
+    def push_stack(self, new_stack):
+        self.stacks.append(new_stack)
 
-class ExpressionState(State):
-    variantes = [
-        (TOKEN_EXPRESSION_END, 'TextState'),
-        (all_tokens,),
-    ]
+    def pop_stack(self):
+        return self.stacks.pop()
 
+    def __nonzero__(self):
+        return len(self.stacks)
 
-class StatementForState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens,),
-    ]
+    def __repr__(self):
+        return repr(self.stacks)
 
-
-class StatementIfState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens,),
-    ]
-
-
-class StatementElifState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens,),
-    ]
-
-
-class StatementElseState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens,),
-    ]
-
-
-class BaseTemplatesNameState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens,),
-    ]
-
-
-class SlotDefState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens,),
-    ]
-
-
-class SlotCallState(State):
-    variantes = [
-        (TOKEN_NEWLINE, 'InitialState'),
-        (all_tokens,),
-    ]
-
-
-ESCAPE_HELLPER = '__MINT_TEXT_ESCAPE'
+    def __iter__(self):
+        return reversed(self.stack[:])
 
 
 class Parser(object):
+    def __init__(self, states, value_processor=None):
+        self.states = dict(states)
+        self.value_processor = value_processor
 
-    # Variable's names for generated code
-    OUTPUT_NAME = '__MINT__OUTPUT__'
-    OUTPUT_WRITER = '__MINT__OUTPUT__WRITER__'
+    def parse(self, tokens_stream, stack):
+        current_state = 'start'
+        variantes = self.states[current_state]
+        for tok in tokens_stream:
+            token, tok_value, lineno, pos = tok
 
-    NAMESPACE = {
-        ESCAPE_HELLPER:escape,
-        'StringIO':StringIO,
-        '__builtins__':__builtins__,
-    }
+            # accept new token
+            new_state = None
+            for item in variantes:
+                variante, state, callback = item
+                # tokens sequence
+                if isinstance(variante, basestring):
+                    variante = globals().get(variante)
+                if isinstance(variante, (list, tuple)):
+                    if token in variante:
+                        new_state = state
+                        break
+                elif variante is token:
+                    new_state = state
+                    break
+                elif isinstance(variante, Parser):
+                    variante.parse(itertools.chain([tok], tokens_stream), stack)
+                    new_state = state
+                    #NOTE: tok still points to first token
 
-    def __init__(self, slots=None, indent=4, pprint=True):
-        self.indent_level = indent
-        self.indent = u' ' *indent
-        self.__id = 0
-        # parent nodes stack
-        self.stack = []
+            if new_state is None:
+                raise WrongToken('[%s] Unexpected token "%s(%r)" at line %d, pos %d' \
+                        % (current_state, token, tok_value, lineno, pos))
+            # process of new_state
+            elif new_state != current_state:
+                if new_state == 'end':
+                    #print current_state, '%s(%r)' % (token, tok_value), new_state
+                    callback(tok, stack)
+                    #_print_stack(stack)
+                    break
+                current_state = new_state
+                variantes = self.states[current_state]
+            # state callback
+            #print current_state, '%s(%r)' % (token, tok_value), new_state
+            callback(tok, stack)
+            #_print_stack(stack)
+        if self.value_processor:
+            self.value_processor(stack)
+
+def _print_stack(s):
+    print '[stack]'
+    for i in s:
+        print ' '*4, i
+    print '[end of stack]\n'
+
+
+# utils functions
+def get_tokens(s):
+    my_tokens = []
+    while s.current and isinstance(s.current, (list, tuple)):
+        my_tokens.append(s.pop())
+    my_tokens.reverse()
+    return my_tokens
+
+#NOTE: Callbacks are functions that takes token and stack
+skip = lambda t, s: None
+push = lambda t, s: s.push(t)
+pop_stack = lambda t, s: s.pop_stack()
+def push_stack(t, s):
+    if isinstance(s.current, ElseStmtNode):
+        stmt = s.pop()
+        s.push_stack(stmt.nodes)
+    elif isinstance(s.current, IfStmtNode) and s.current.orelse:
+        s.push_stack(s.current.orelse[-1].nodes)
+    else:
+        s.push_stack(s.current.nodes)
+
+
+# text data and inline python expressions
+def py_expr(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(PythonExpressionNode(u''.join([t[1] for t in my_tokens]), 
+                                lineno=lineno, col_offset=col_offset))
+
+def text_value(t, s):
+    my_tokens = get_tokens(s)
+    if my_tokens:
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        s.push(TextNode(u''.join([t[1] for t in my_tokens]), 
+                        lineno=lineno, col_offset=col_offset))
+
+def text_value_with_last(t, s):
+    s.push(t)
+    text_value(t, s)
+
+# parser of attribute value
+attr_data_parser = Parser((
+    # state name
+    ('start', (
+        # variantes (token, new_state, callback)
+        #           ((token, token,...), new_state, callback)
+        #           (other_parser, new_state, callback)
+        #           ('other_parser', new_state, callback)
+        (TOKEN_EXPRESSION_START, 'expr', text_value),
+        (TOKEN_PARENTHESES_CLOSE, 'end', text_value),
+        (all_except(TOKEN_NEWLINE), 'start', push),
+        )),
+    ('expr', (
+        (TOKEN_EXPRESSION_END, 'start', py_expr),
+        (all_tokens, 'expr', push),
+        )),
+))
+
+
+# parser of text data and inline python expressions
+data_parser = Parser((
+    ('start', (
+        (TOKEN_EXPRESSION_START, 'expr', text_value),
+        (TOKEN_NEWLINE, 'end', text_value_with_last),
+        (all_except(TOKEN_INDENT), 'start', push),
+        )),
+    ('expr', (
+        (TOKEN_EXPRESSION_END, 'start', py_expr),
+        (all_tokens, 'expr', push),
+        )),
+))
+
+
+# tag and tag attributes callbacks
+def tag_name(t, s):
+    #if isinstance(s.current, (list, tuple)):
+    my_tokens = get_tokens(s)
+    if my_tokens:
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        s.push(TagNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+def tag_attr_name(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(TagAttrNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+def tag_attr_value(t, s):
+    nodes = []
+    while not isinstance(s.current, TagAttrNode):
+        nodes.append(s.pop())
+    attr = s.current
+    attr.nodes = reversed(nodes)
+
+def set_attr(t, s):
+    nodes = []
+    while not isinstance(s.current, TagAttrNode):
+        nodes.append(s.pop())
+    attr = s.pop()
+    attr.nodes = reversed(nodes)
+    s.push(SetAttrNode(attr))
+
+def append_attr(t, s):
+    nodes = []
+    while not isinstance(s.current, TagAttrNode):
+        nodes.append(s.pop())
+    attr = s.pop()
+    attr.nodes = reversed(nodes)
+    s.push(AppendAttrNode(attr))
+
+def tag_node(t, s):
+    attrs = []
+    while isinstance(s.current, TagAttrNode):
+        attrs.append(s.pop())
+    tag = s.pop()
+    # if there were no attrs
+    if isinstance(tag, (list, tuple)):
+        my_tokens = get_tokens(s)
+        my_tokens.append(tag)
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        tag = TagNode(u''.join([t[1] for t in my_tokens]), 
+                      lineno=lineno, col_offset=col_offset)
+    if attrs:
+        tag.attrs = attrs
+    s.push(tag)
+
+def tag_node_with_data(t, s):
+    tag_node(t, s)
+    push_stack(t, s)
+
+# tag parser
+tag_parser = Parser((
+    ('start', (
+        (TOKEN_TEXT, 'start', push),
+        (TOKEN_MINUS, 'start', push),
+        (TOKEN_COLON, 'start', push),
+        (TOKEN_DOT, 'attr', tag_name),
+        (TOKEN_WHITESPACE, 'continue', tag_node_with_data),
+        (TOKEN_NEWLINE, 'end', tag_node),
+        )),
+    ('attr', (
+        (TOKEN_TEXT, 'attr', push),
+        (TOKEN_MINUS, 'attr', push),
+        (TOKEN_COLON, 'attr', push),
+        (TOKEN_PARENTHESES_OPEN, 'attr_value', tag_attr_name),
+        )),
+    ('attr_value', (
+        (attr_data_parser, 'start', tag_attr_value),
+        )),
+    ('continue', (
+        (TOKEN_TAG_START, 'nested_tag', skip),
+        (TOKEN_NEWLINE, 'end', pop_stack),
+        (data_parser, 'end', pop_stack),
+        )),
+    ('nested_tag', (
+        ('nested_tag_parser', 'end', pop_stack),
+        )),
+))
+
+# this is modified tag parser, supports inline tags with data
+nested_tag_parser = Parser(dict(tag_parser.states, start=(
+        (TOKEN_TEXT, 'start', push),
+        (TOKEN_MINUS, 'start', push),
+        (TOKEN_COLON, 'start', push),
+        (TOKEN_DOT, 'attr', tag_name),
+        (TOKEN_WHITESPACE, 'continue', tag_node_with_data),
+        (TOKEN_NEWLINE, 'end', tag_node),
+        )
+).iteritems())
+
+
+# base parser callbacks
+def base_template(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(BaseTemplate(u''.join([t[1] for t in my_tokens])))
+
+def html_comment(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(TextNode(Markup(u'<!-- %s -->' % u''.join([t[1] for t in my_tokens])), 
+                       lineno=lineno, col_offset=col_offset))
+
+def for_stmt(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(ForStmtNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+def if_stmt(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(IfStmtNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+def elif_stmt(t, s):
+    if not isinstance(s.current, IfStmtNode):
+        pass
+        #XXX: raise TemplateError
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    stmt = IfStmtNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset)
+    s.current.orelse.append(stmt)
+
+def else_stmt(t, s):
+    lineno, col_offset = t[2], t[3]
+    if not isinstance(s.current, IfStmtNode):
+        pass
+        #XXX: raise TemplateError
+    stmt = ElseStmtNode(lineno=lineno, col_offset=col_offset)
+    # elif
+    if s.current.orelse:
+        s.current.orelse[-1].orelse.append(stmt)
+    # just else
+    else:
+        s.current.orelse.append(stmt)
+    s.push(stmt)
+
+def slot_def(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(SlotDefNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+def slot_call(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(SlotCallNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+# base parser (MAIN PARSER)
+block_parser = Parser((
+    # start is always the start of a new line
+    ('start', (
+        (TOKEN_TEXT, 'text', push),
+        (TOKEN_EXPRESSION_START, 'expr', skip),
+        (TOKEN_TAG_ATTR_SET, 'set_attr', skip),
+        (TOKEN_TAG_ATTR_APPEND, 'append_attr', skip),
+        (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_STATEMENT_FOR, 'for_stmt', push),
+        (TOKEN_STATEMENT_IF, 'if_stmt', push),
+        (TOKEN_STATEMENT_ELIF, 'elif_stmt', push),
+        (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
+        (TOKEN_SLOT_DEF, 'slot_def', push),
+        (TOKEN_BASE_TEMPLATE, 'base', skip),
+        (TOKEN_STMT_CHAR, 'slot_call', skip),
+        (TOKEN_COMMENT, 'comment', skip),
+        (TOKEN_BACKSLASH, 'escaped_text', skip),
+
+        (TOKEN_INDENT, 'indent', push_stack),
+        (TOKEN_UNINDENT, 'start', pop_stack),
+        (TOKEN_NEWLINE, 'start', skip),
+        (TOKEN_EOF, 'end', skip),
+        )),
+    # to prevent multiple indentions in a row
+    ('indent', (
+        (TOKEN_TEXT, 'text', push),
+        (TOKEN_EXPRESSION_START, 'expr', skip),
+        (TOKEN_TAG_ATTR_APPEND, 'append_attr', skip),
+        (TOKEN_TAG_ATTR_SET, 'set_attr', skip),
+        (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_STATEMENT_FOR, 'for_stmt', push),
+        (TOKEN_STATEMENT_IF, 'if_stmt', push),
+        (TOKEN_STATEMENT_ELIF, 'elif_stmt', push),
+        (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
+        (TOKEN_SLOT_DEF, 'slot_def', push),
+        (TOKEN_STMT_CHAR, 'slot_call', skip),
+        (TOKEN_COMMENT, 'comment', skip),
+        (TOKEN_BACKSLASH, 'escaped_text', skip),
+        (TOKEN_NEWLINE, 'start', skip),
+        (TOKEN_UNINDENT, 'start', pop_stack),
+        )),
+    ('base', (
+        (TOKEN_NEWLINE, 'start', base_template),
+        (all_tokens, 'base', push),
+        )),
+    ('text', (
+        (TOKEN_EXPRESSION_START, 'expr', text_value),
+        (TOKEN_NEWLINE, 'start', text_value_with_last),
+        (all_except(TOKEN_INDENT), 'text', push),
+        )),
+    ('expr', (
+        (TOKEN_EXPRESSION_END, 'text', py_expr),
+        (all_tokens, 'expr', push),
+        )),
+    ('escaped_text', (
+        (TOKEN_NEWLINE, 'start', text_value_with_last),
+        (all_except(TOKEN_INDENT), 'escaped_text', push),
+        )),
+    ('tag', (
+        (tag_parser, 'start', skip),
+        )),
+    ('comment', (
+        (TOKEN_NEWLINE, 'start', html_comment),
+        (all_tokens, 'comment', push),
+        )),
+    ('set_attr', (
+        (TOKEN_TEXT, 'set_attr', push),
+        (TOKEN_MINUS, 'set_attr', push),
+        (TOKEN_COLON, 'set_attr', push),
+        (TOKEN_PARENTHESES_OPEN, 'set_attr_value', tag_attr_name),
+        )),
+    ('set_attr_value', (
+        (attr_data_parser, 'start', set_attr),
+        )),
+    ('append_attr', (
+        (TOKEN_TEXT, 'append_attr', push),
+        (TOKEN_MINUS, 'append_attr', push),
+        (TOKEN_COLON, 'append_attr', push),
+        (TOKEN_PARENTHESES_OPEN, 'append_attr_value', tag_attr_name),
+        )),
+    ('append_attr_value', (
+        (attr_data_parser, 'start', append_attr),
+        )),
+    ('for_stmt', (
+        (TOKEN_NEWLINE, 'start', for_stmt),
+        (all_tokens, 'for_stmt', push),
+        )),
+    ('if_stmt', (
+        (TOKEN_NEWLINE, 'start', if_stmt),
+        (all_tokens, 'if_stmt', push),
+        )),
+    ('elif_stmt', (
+        (TOKEN_NEWLINE, 'start', elif_stmt),
+        (all_tokens, 'elif_stmt', push),
+        )),
+    ('else_stmt', (
+        (TOKEN_NEWLINE, 'start', else_stmt),
+        #(all_tokens, 'else_stmt', push),
+        )),
+    ('slot_def', (
+        (TOKEN_NEWLINE, 'start', slot_def),
+        (all_tokens, 'slot_def', push),
+        )),
+    ('slot_call', (
+        (TOKEN_NEWLINE, 'start', slot_call),
+        (all_tokens, 'slot_call', push),
+        )),
+))
+
+
+class SlotsGetter(ast.NodeTransformer):
+    'Node transformer, collects slots'
+    def __init__(self, slots=None):
+        self.slots = slots or {}
         self.base = None
-        # final module, which stores all prepaired nodes
-        # current scope
-        self.ctx = TagNode('', 0) # root tag node
-        # indicates if we are in text block
-        self._text_block = []
-        # if elif else
-        self._if_blocks = []
-        # slots is dict, because any slot may be overriden in inherited templates
-        self.slots = slots if slots else {}
-        self.pprint = pprint
+    def visit_FunctionDef(self, node):
+        self.slots[node.name] = node
+    def visit_BaseTemplate(self, node):
+        self.base = node.name
 
-    def push_stack(self, ctx):
-        '''
-        ctx - scope (list actualy)
-        '''
-        #print 'push: ', ctx
-        self.stack.append(self.ctx)
-        self.ctx = ctx
 
-    def pop_stack(self):
-        #print 'pop:  ', self.ctx
-        self.ctx = self.stack.pop()
-
-    @property
-    def level(self):
-        return len(self.stack)
-
-    def _id(self):
-        self.__id += 1
-        return self.__id
-
-    @property
-    def tree(self):
-        module_tree = ast.Module(body=[
-            ast.Assign(targets=[ast.Name(id=self.OUTPUT_NAME, ctx=Store(), 
-                                         lineno=1, col_offset=0)], 
-                       value=ast.Call(func=ast.Name(id='StringIO', ctx=Load(), 
-                                                    lineno=1, col_offset=0),
-                                      args=[], keywords=[], starargs=None, kwargs=None, 
-                                      lineno=1, col_offset=0),
-                       lineno=1, col_offset=0),
-            ast.Assign(targets=[ast.Name(id=self.OUTPUT_WRITER, ctx=Store(), 
-                                         lineno=1, col_offset=0)], 
-                       value=ast.Attribute(value=ast.Name(id=self.OUTPUT_NAME, 
-                                                          ctx=Load(), lineno=1, 
-                                                          col_offset=0),
-                                           attr='write', ctx=Load(), lineno=1, 
-                                           col_offset=0),
-                                 lineno=1, col_offset=0)], lineno=1, col_offset=0)
-
-        # First we need to have slots in module_tree
-        #print self.slots
-        for slot in self.slots.values():
-            module_tree.body.append(slot.to_ast(self.OUTPUT_WRITER))
-        # Then other content
-        nodes_list = self.ctx.to_list()
-        #print nodes_list
-        for i in merged_nodes(nodes_list):
-            module_tree.body.append(i.to_ast(self.OUTPUT_WRITER))
-        return module_tree
+class MintParser(object):
+    '''
+    This class is wrapper to normal parsers (tag_parser, block_parser, etc.).
+    This wrapper returns slots and base template name (if any).
+    and returns ast module node.
+    '''
+    def __init__(self, indent=4):
+        self.indent = indent
 
     def parse(self, tokens_stream):
-        last_state = InitialState
-        state_data = []
-        for token, value, lineno, pos in tokens_stream:
-            self.lineno = lineno
-            self.col_offset = pos
-            if token is TOKEN_EOF:
-                break
-            state_data.append((token, value))
-            try:
-                state = last_state.accept(token)
-            except WrongToken:
-                raise TemplateError('Syntax error at line %d, token "%s"' % (lineno, 
-                                                                             value))
-            # if state changed, we need to process data
-            if state is not last_state:
-                #print last_state.__name__, token, state.__name__, state_data
-                state_data = self.process(last_state, state, state_data)
-                last_state = state
+        ast_ = AstWrapper(1,0)
+        module = ast_.Module(body=[
+            ast_.Assign(targets=[ast_.Name(id=TAG_START, ctx=Store())],
+                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
+                                             attr='start')),
+            ast_.Assign(targets=[ast_.Name(id=TAG_END, ctx=Store())],
+                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
+                                             attr='end')),
+            ast_.Assign(targets=[ast_.Name(id=DATA, ctx=Store())],
+                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
+                                             attr='data')),
+            ])
+        smart_stack = RecursiveStack()
+        block_parser.parse(tokens_stream, smart_stack)
+        for item in smart_stack.stack:
+            result = item.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    module.body.append(i)
+            else:
+                module.body.append(result)
+        slots_getter =  SlotsGetter()
+        slots_getter.visit(module)
+        return module, slots_getter.slots, slots_getter.base
 
-        while self.stack:
-            self.pop_stack()
-
-    def _get_level(self, line):
-        return len(line)/self.indent_level
-
-    def _split_whitespaces(self, data):
-        prefix, data = data[:-1], data[-1:]
-        pos = None
-        for i, d in enumerate(prefix):
-            if d[0] is TOKEN_NEWLINE:
-                pos = i
-
-        if pos is None:
-            return data, prefix and prefix[0][1] or u''
-        else:
-            if prefix[:pos+1]:
-                #print 'add_text', prefix[:pos+1]
-                self.add_text(prefix[:pos+1])
-            if len(prefix) > pos + 1:
-                return data, prefix[pos+1][1]
-            return data, u''
-
-    def process(self, last_state, state, data):
-        # set level and ctx
-        if last_state is InitialState:
-            #print data
-            data, whitespaces = self._split_whitespaces(data)
-            #print '%r' % whitespaces, data
-            self.set_level(whitespaces)
-        # \ text text
-        if last_state is EscapedTextLineState and state is InitialState:
-            # first token - TOKEN_BACKSLASH, last - TOKEN_NEWLINE
-            self.add_text(data[1:])
-            return []
-        # text at the end of line
-        if last_state is TextState and state is InitialState:
-            self.add_text(data)
-            return []
-        # text text {{
-        if last_state is TextState and state is ExpressionState:
-            self.add_text(data[:-1])
-            return data[-1:]
-        if last_state is ExpressionState and state is not ExpressionState:
-            self.add_expression(data[1:-1])
-            return []
-        # @div\n
-        if state is EndTagState and last_state is not EndTagAttrState:
-            self.add_tag(data[1:])
-            return []
-        if state is InitialState and last_state is TagNameState:
-            self.add_tag(data[1:])
-            self.ctx.nodes.append(TextNode(u'\n'))
-            return []
-        # @div.
-        if last_state is TagNameState and state is TagAttrState:
-            self.add_tag(data[1:-1])
-            return []
-        # @div.class(
-        if last_state is TagAttrNameState and state is TagAttrTextState:
-            self.add_attr_name(data[1][1] if data[0][0] is TOKEN_DOT else data[0][1])
-            return []
-        # @div.class( text)
-        if last_state is TagAttrTextState and state is EndTagAttrState:
-            self.add_text(data[:-1])
-            # we have attr node last in stack
-            self.pop_stack()
-            return []
-        # @div.class( {{ expr }})
-        if last_state is TagAttrExpressionState and state is EndTagAttrState:
-            self.add_expression(data[1:-1], ctx='attr')
-            self.pop_stack()
-            return []
-        # @div.class( text {{ expr }})
-        if last_state is TagAttrTextState and state is TagAttrExpressionState:
-            self.add_text(data[:-1])
-            return []
-        # @div.class({{ expr }} text )
-        if last_state is TagAttrExpressionState and state is TagAttrTextState:
-            self.add_expression(data[1:-1], ctx='attr')
-            return []
-        # @div.attr(value)\n
-        if last_state is EndTagAttrState and state is not TagAttrState:
-            return []
-        if last_state is EndTagAttrState and state is InitialState:
-            #self.ctx.nodes.append(TextNode(u'\n'))
-            return []
-        # #for i in range(4):
-        if last_state is StatementForState and state is InitialState:
-            self.add_statement_for(data)
-            return []
-        # #if a:
-        if last_state is StatementIfState and state is InitialState:
-            self.add_statement_if(data)
-            return []
-        # #elif a:
-        if last_state is StatementElifState and state is InitialState:
-            self.add_statement_elif(data)
-            return []
-        # #else:
-        if last_state is StatementElseState and state is InitialState:
-            self.add_statement_else(data)
-            return []
-        # #base:
-        if last_state is BaseTemplatesNameState and state is InitialState:
-            #XXX: should validation founds here?
-            if self.lineno == 1:
-                self.base_template(data[1:-1])
-                return []
-        # #def slot():
-        if last_state is SlotDefState and state is InitialState:
-            self.add_slot_def(data)
-            return []
-        # #slot():
-        if last_state is SlotCallState and state is InitialState:
-            # first token - '#'
-            self.add_slot_call(data[1:])
-            return []
-        return data
-
-    def add_tag(self, data):
-        #print 'add tag:', ''.join((v[1] for v in data ))
-        t, val = data[0]
-        node = TagNode(val, self.level)
-        self.ctx.nodes.append(node)
-        self.push_stack(node)
-
-    def add_text(self, data):
-        #print 'add text:', '%r' % ''.join((v[1] for v in data ))
-        self.ctx.nodes.append(TextNode(u''.join([v[1] for v in data ]), 
-                                       lineno=self.lineno, col_offset=self.col_offset))
-
-    def add_expression(self, data, ctx='tag'):
-        #print 'add expression:', ''.join((v[1] for v in data ))
-        self.ctx.nodes.append(ExprNode(u''.join([v[1] for v in data ]).lstrip(), 
-                              lineno=self.lineno, col_offset=self.col_offset, ctx=ctx))
-
-    def add_attr_name(self, data):
-        #print 'add attr name:', data
-        attr = AttrNode(data)
-        self.ctx.set_attr(attr)
-        self.push_stack(attr)
-
-    def set_level(self, data):
-        level = self._get_level(data)
-        #print 'set indention:', level, self.level
-        if level <= self.level:
-            for y in range(self.level - level):
-                self.pop_stack()
-
-    def add_statement_for(self, data):
-        node = ForStatementNode(u''.join([v[1] for v in data ]), 
-                                lineno=self.lineno, col_offset=self.col_offset)
-        self.ctx.nodes.append(node)
-        self.push_stack(node)
-
-    def add_statement_if(self, data):
-        node = IfStatementNode(u''.join([v[1] for v in data ]), 
-                                lineno=self.lineno, col_offset=self.col_offset)
-        self.ctx.nodes.append(node)
-        self._if_blocks.append((self.level, node))
-        self.push_stack(node)
-
-    def add_statement_elif(self, data):
-        node = IfStatementNode(u''.join([v[1] for v in data ]), 
-                                lineno=self.lineno, col_offset=self.col_offset)
-        last = []
-        for level, if_stmt in self._if_blocks:
-            if self.level > level:
-                last.append((level, if_stmt))
-            elif self.level == level:
-                if_stmt.orelse.append(node)
-        last.append((self.level, node))
-        self._if_blocks = last
-        self.push_stack(node)
-
-    def add_statement_else(self, data):
-        node = StatementElse()
-        last = []
-        for level, if_stmt in self._if_blocks:
-            if self.level > level:
-                last.append((level, if_stmt))
-            elif self.level == level:
-                if_stmt.orelse.append(node)
-        self._if_blocks = last
-        self.push_stack(node)
-
-    def base_template(self, data):
-        self.base = u''.join([v[1] for v in data])
-
-    def add_slot_def(self, data):
-        slot_def = u''.join([v[1] for v in data])[1:]
-        node = SlotDefNode(slot_def, self.lineno, self.col_offset)
-        if not node.name in self.slots:
-            self.slots[node.name] = node
-        self.push_stack(node)
-
-    def add_slot_call(self, data):
-        #print 'add expression:', ''.join((v[1] for v in data ))
-        self.ctx.nodes.append(SlotCallNode(u''.join([v[1] for v in data ]).lstrip(), 
-                              lineno=self.lineno, col_offset=self.col_offset))
 ############# PARSER END
 
 
@@ -996,54 +1121,91 @@ class TemplateNotFound(Exception):
 class Template(object):
 
     def __init__(self, sourcefile, cache=True, loader=None):
-        self.sourcefile = StringIO(sourcefile) if isinstance(sourcefile, basestring) else sourcefile
-        self.filename = '<string>' if isinstance(sourcefile, basestring) else sourcefile.name
+        self.sourcefile = StringIO(sourcefile) if isinstance(sourcefile, basestring) \
+                                               else sourcefile
+        self.filename = '<string>' if isinstance(sourcefile, basestring) \
+                                   else sourcefile.name
         self.need_caching = cache
-        # ast
-        self._tree = None
+        # cached compiled code
         self.compiled_code = None
         #self._loader = weakref.proxy(loader) if loader else None
         self._loader = loader
 
-    @property
-    def tree(self):
-        if self._tree is None:
-            tree = self.parse()
-            if self.need_caching:
-                self._tree = tree
-            return tree
-        else:
-            return self._tree
-
-    def parse(self, slots=None):
-        parser = Parser(indent=4, slots=slots)
-        stream = TokensStream(self.sourcefile)
-        parser.parse(stream.tokenize())
-        tree = parser.tree
-        # templates inheritance
-        if parser.base is not None:
-            base_template = self._loader.get_template(parser.base)
-            # one base template may have multiple childs, so
-            # every time we need to get base template tree again
-            tree = base_template.parse(slots=parser.slots)
+    def tree(self, slots=None):
+        slots = slots or {}
+        parser = MintParser(indent=4)
+        tree, _slots, base_template_name = parser.parse(tokenizer(self.sourcefile))
+        # we do not want to override slot's names,
+        # so prefixing existing slots with underscore
+        for k, v in _slots.iteritems():
+            if k in slots:
+                del _slots[k]
+                v.name = '_'+k
+                _slots[v.name] = v
+        slots.update(_slots)
+        if base_template_name:
+            base_template = self._loader.get_template(base_template_name)
+            tree = base_template.tree(slots=slots)
+            for v in slots.values():
+                tree.body.insert(3, v)
+        # tree already has slots definitions and ready to be compiled
         return tree
 
     def compile(self):
-        compiled_souces = compile(self.tree, self.filename, 'exec')
-        if self.need_caching:
-            self.compiled_code = compiled_souces
-        return compiled_souces
+        return compile(self.tree(), self.filename, 'exec')
 
     def render(self, **kwargs):
-        if self.compiled_code is None:
-            code = self.compile()
+        if self.need_caching:
+            if self.compiled_code:
+                code = self.compiled_code
+            else:
+                code = self.compile()
+                self.compiled_code = code
         else:
-            code = self.compiled_code
-        ns = Parser.NAMESPACE.copy()
-        ns['utils'] = utils
+            code = self.compile()
+        ns = {
+            'utils':utils,
+            UNICODE:unicode,
+            ESCAPE_HELLPER:escape,
+        }
+        builder = TreeBuilder()
+        ns[TREE_BUILDER] = builder
+        # NOTE: TreeBuilder will ignore first zero level elements
+        # if there are any
+        builder.start('root', {})
         ns.update(kwargs)
         exec code in ns
-        return ns[Parser.OUTPUT_NAME].getvalue()
+        builder.end('root')
+        #XXX: this is ugly. to not show root element we slice result
+        return self.tostring(builder.close())[6:-7]
+
+    def tostring(self, node):
+        '''xml.etree.ElementTree tostring function escapes all data,
+        but we need it our way.'''
+        class dummy: pass
+        data = []
+        out = dummy()
+        out.write = data.append
+        tag = node.tag
+        items = node.items()
+        out.write(u'<' + tag)
+        if items:
+            items.sort() # lexical order
+            for k, v in items:
+                out.write(u' %s="%s"' % (k, v))
+        if node.text or len(node):
+            out.write(u'>')
+            if node.text:
+                # text must be escaped during tree building
+                out.write(node.text)
+            for n in node:
+                out.write(self.tostring(n))
+            out.write(u'</' + tag + '>')
+        else:
+            out.write(u' />')
+        if node.tail:
+            out.write(node.tail)
+        return u''.join(data)
 
 
 class Loader(object):
@@ -1051,9 +1213,13 @@ class Loader(object):
     def __init__(self, *dirs, **kwargs):
         cache = kwargs.get('cache', False)
         self.dirs = []
+        # dirs - list of directories. Order matters
         for dir in dirs:
             self.dirs.append(path.abspath(dir))
         self.need_caching = cache
+        # caching of template code implemented in template,
+        # so we caching template initialized templates and
+        # do not worry about caching of compiled code
         self._templates_cache = {}
 
     def get_template(self, template):
@@ -1083,6 +1249,22 @@ class Markup(unicode):
 
     def __html__(self):
         return self
+
+    def __add__(self, other):
+        if hasattr(other, '__html__') or isinstance(other, basestring):
+            return self.__class__(unicode(self) + unicode(escape(other)))
+        return NotImplemented
+
+    def __radd__(self, other):
+        if hasattr(other, '__html__') or isinstance(other, basestring):
+            return self.__class__(unicode(escape(other)) + unicode(self))
+        return NotImplemented
+
+    def __mul__(self, num):
+        if isinstance(num, (int, long)):
+            return self.__class__(unicode.__mul__(self, num))
+        return NotImplemented
+    __rmul__ = __mul__
 
     def __unicode__(self):
         return self
@@ -1274,6 +1456,17 @@ class Printer(ast.NodeVisitor):
             self.visit(el)
         self.src.write(']')
 
+    def visit_Dict(self, node):
+        self.src.write('{')
+        total_keys = len(node.keys)
+        for i in range(total_keys):
+            if i != 0:
+                self.src.write(', ')
+            self.visit(node.keys[i])
+            self.src.write(': ')
+            self.visit(node.values[i])
+        self.src.write('}')
+
     def visit_Assign(self, node):
         self.make_tab()
         for target in node.targets:
@@ -1318,6 +1511,14 @@ class Printer(ast.NodeVisitor):
         self.src.write(' ')
         self.visit(node.right)
 
+    def visit_BoolOp(self, node):
+        for i, n in enumerate(node.values):
+            self.visit(n)
+            if not i:
+                self.src.write(' ')
+                self.visit(node.op)
+                self.src.write(' ')
+
     # Operators
     def visit_Add(self, node):
         self.src.write('+')
@@ -1337,27 +1538,17 @@ class Printer(ast.NodeVisitor):
     def visit_Gt(self, node):
         self.src.write('>=')
 
+    def visit_Or(self, node):
+        self.src.write('or')
+
 
 if __name__ == '__main__':
     from sys import argv
     import datetime
     template_name = argv[1]
-    print 'TEMPLATE:  %s' % template_name
-    stream = TokensStream(open(template_name, 'r'))
-    start = datetime.datetime.now()
-    tokens_list = [t for t in stream.tokenize()]
-    tokenizer_delta = datetime.datetime.now() - start
-    print 'TOKENIZER: %s s' % (tokenizer_delta)
     template = Loader('.').get_template(template_name)
-    parser = Parser()
-    start = datetime.datetime.now()
-    parser.parse(TokensStream(open(template_name, 'r')).tokenize())
-    end = datetime.datetime.now()
-    print 'PARSER:   %s s' % (end - start)
-    start = datetime.datetime.now()
-    compiled_souces = compile(template.tree, template_name, 'exec')
-    end = datetime.datetime.now()
-    print 'COMPILING: %s s' % (end - start)
     printer = Printer()
-    printer.visit(template.tree)
+    printer.visit(template.tree())
     print printer.src.getvalue()
+    #for t in tokenizer(open(template_name, 'r')):
+        #print t
