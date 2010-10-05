@@ -430,7 +430,7 @@ class TagNode(Node):
 
 class ForStmtNode(Node):
     def __init__(self, text, lineno=None, col_offset=None):
-        self.text = text
+        self.text = text.strip()
         self.nodes = []
         self.ast_ = AstWrapper(lineno, col_offset)
 
@@ -442,8 +442,10 @@ class ForStmtNode(Node):
             expr += ':'
         expr += 'pass'
         value = ast.parse(expr).body[0]
+        value.body = []
         value.lineno = ast_.lineno
         value.col_offset = ast_.col_offset
+        #XXX: if nodes is empty list raise TemplateError
         for n in self.nodes:
             result = n.to_ast()
             if isinstance(result, (list, tuple)):
@@ -455,6 +457,67 @@ class ForStmtNode(Node):
 
     def __repr__(self):
         return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.text, self.nodes)
+
+
+class IfStmtNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text
+        self.nodes = []
+        self.orelse = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        result = []
+        expr = self.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        value = ast.parse(expr).body[0]
+        value.body = []
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        #XXX: if nodes is empty list raise TemplateError
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        for n in self.orelse:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.orelse.append(i)
+            else:
+                value.orelse.append(result)
+        return value
+
+    def __repr__(self):
+        return '%s(%r, nodes=%r, orelse=%r)' % (self.__class__.__name__, 
+                                                self.text, self.nodes,
+                                                self.orelse)
+
+
+class ElseStmtNode(Node):
+    def __init__(self, lineno=None, col_offset=None):
+        self.nodes = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        value = []
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.append(i)
+            else:
+                value.append(result)
+        return value
+
+    def __repr__(self):
+        return '%s(nodes=%r)' % (self.__class__.__name__, self.nodes)
 # NODES END
 
 
@@ -534,14 +597,14 @@ class Parser(object):
                 if new_state == 'end':
                     #print current_state, '%s(%r)' % (token, tok_value), new_state
                     callback(tok, stack)
-                    #_print_stack(stack)
+                    _print_stack(stack)
                     break
                 current_state = new_state
                 variantes = self.states[current_state]
             # state callback
             #print current_state, '%s(%r)' % (token, tok_value), new_state
             callback(tok, stack)
-            #_print_stack(stack)
+            _print_stack(stack)
         if self.value_processor:
             self.value_processor(stack)
 
@@ -564,7 +627,13 @@ def get_tokens(s):
 skip = lambda t, s: None
 push = lambda t, s: s.push(t)
 pop_stack = lambda t, s: s.pop_stack()
-push_stack = lambda t, s: s.push_stack(s.current.nodes)
+def push_stack(t, s):
+    if isinstance(s.current, ElseStmtNode):
+        stmt = s.pop()
+        s.push_stack(stmt.nodes)
+    else:
+        s.push_stack(s.current.nodes)
+
 
 
 # data
@@ -706,13 +775,29 @@ def for_stmt(t, s):
     s.push(ForStmtNode(u''.join([t[1] for t in my_tokens]), 
                        lineno=lineno, col_offset=col_offset))
 
+def if_stmt(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(IfStmtNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+def else_stmt(t, s):
+    lineno, col_offset = t[2], t[3]
+    if not isinstance(s.current, IfStmtNode):
+        pass
+        #XXX: raise TemplateError
+    stmt = ElseStmtNode(lineno=lineno, col_offset=col_offset)
+    s.current.orelse.append(stmt)
+    s.push(stmt)
+
 block_parser = Parser((
     ('start', (
         (TOKEN_TEXT, 'text', push),
         (TOKEN_EXPRESSION_START, 'expr', skip),
         (TOKEN_TAG_START, 'tag', skip),
-        (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_STATEMENT_FOR, 'for_stmt', push),
+        (TOKEN_STATEMENT_IF, 'if_stmt', push),
+        (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
         (TOKEN_COMMENT, 'comment', skip),
 
         (TOKEN_INDENT, 'indent', push_stack),
@@ -727,6 +812,8 @@ block_parser = Parser((
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_STATEMENT_FOR, 'for_stmt', push),
+        (TOKEN_STATEMENT_IF, 'if_stmt', push),
+        (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
         (TOKEN_COMMENT, 'comment', skip),
         (TOKEN_NEWLINE, 'start', skip),
         (TOKEN_UNINDENT, 'start', pop_stack),
@@ -750,6 +837,14 @@ block_parser = Parser((
     ('for_stmt', (
         (TOKEN_NEWLINE, 'start', for_stmt),
         (all_tokens, 'for_stmt', push),
+        )),
+    ('if_stmt', (
+        (TOKEN_NEWLINE, 'start', if_stmt),
+        (all_tokens, 'if_stmt', push),
+        )),
+    ('else_stmt', (
+        (TOKEN_NEWLINE, 'start', else_stmt),
+        #(all_tokens, 'else_stmt', push),
         )),
 ))
 
