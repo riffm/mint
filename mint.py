@@ -142,9 +142,9 @@ def base_tokenizer(fp):
         map = mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ)
         size = map.size()
     lineno = 0
-    pos = 0
     while 1:
         lineno += 1
+        pos = 1
 
         # end of file
         if map.tell() == size:
@@ -165,7 +165,8 @@ def base_tokenizer(fp):
                 m = token.regex.match(line)
                 if m:
                     if last_text:
-                        yield TOKEN_TEXT, ''.join(last_text), lineno, pos - 1
+                        yield TOKEN_TEXT, ''.join(last_text), lineno, pos
+                        pos += len(last_text)
                         last_text.clear()
                     offset, value = m.end(), m.group()
                     line = line[offset:]
@@ -179,6 +180,7 @@ def base_tokenizer(fp):
 
         if last_text:
             yield TOKEN_TEXT, ''.join(last_text), lineno, pos
+            pos += len(last_text)
             last_text.clear()
         yield TOKEN_NEWLINE, '\n', lineno, pos
 
@@ -217,12 +219,12 @@ def indent_tokenizer(tokens_stream, indent=4):
                     if range_ > 0:
                         # indenting
                         for i in range(range_):
-                            yield TOKEN_INDENT, ' '*indent, lineno, pos
+                            yield TOKEN_INDENT, ' '*indent, next_lineno, next_pos
                             current_indent += 1
                     elif range_ < 0:
                         # unindenting
                         for i in range(abs(range_)):
-                            yield TOKEN_UNINDENT, ' '*indent, lineno, pos
+                            yield TOKEN_UNINDENT, ' '*indent, next_lineno, next_pos
                             current_indent -= 1
                     if rest:
                         yield TOKEN_WHITESPACE, ' '*rest, lineno, pos
@@ -230,7 +232,7 @@ def indent_tokenizer(tokens_stream, indent=4):
             # next token is the whitespace lighter than indent or any other
             # token, so unindenting to zero level
             for i in range(current_indent):
-                yield TOKEN_UNINDENT, ' '*indent, lineno, pos
+                yield TOKEN_UNINDENT, ' '*indent, next_lineno, next_pos
             current_indent = 0
             yield next_tok
             # we do not yielding newline tokens
@@ -695,14 +697,14 @@ class Parser(object):
             # process of new_state
             elif new_state != current_state:
                 if new_state == 'end':
-                    print current_state, '%s(%r)' % (token, tok_value), new_state
+                    #print current_state, '%s(%r)' % (token, tok_value), new_state
                     callback(tok, stack)
                     #_print_stack(stack)
                     break
                 current_state = new_state
                 variantes = self.states[current_state]
             # state callback
-            print current_state, '%s(%r)' % (token, tok_value), new_state
+            #print current_state, '%s(%r)' % (token, tok_value), new_state
             callback(tok, stack)
             #_print_stack(stack)
         if self.value_processor:
