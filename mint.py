@@ -323,6 +323,14 @@ class Node(object):
         return '%s' % self.__class__.__name__
 
 
+class BaseTemplate(ast.AST):
+    def __init__(self, name):
+        self.name = name
+
+    def to_ast(self):
+        return self
+
+
 class TextNode(Node):
     def __init__(self, text, lineno=None, col_offset=None, ctx='tag'):
         self.text = text
@@ -520,6 +528,53 @@ class ElseStmtNode(Node):
 
     def __repr__(self):
         return '%s(nodes=%r)' % (self.__class__.__name__, self.nodes)
+
+
+class SlotDefNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text.strip()
+        self.nodes = []
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        result = []
+        expr = self.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        value = ast.parse(expr).body[0]
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        #XXX: if self.nodes is empty list raise TemplateError
+        for n in self.nodes:
+            result = n.to_ast()
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        return value
+
+    def __repr__(self):
+        return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.text, self.nodes)
+
+
+class SlotCallNode(Node):
+    def __init__(self, text, lineno=None, col_offset=None):
+        self.text = text.strip()
+        self.ast_ = AstWrapper(lineno, col_offset)
+
+    def to_ast(self):
+        ast_ = self.ast_
+        expr = self.text
+        value = ast.parse(expr).body[0]
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        return value
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self.text)
 # NODES END
 
 
@@ -599,14 +654,14 @@ class Parser(object):
                 if new_state == 'end':
                     #print current_state, '%s(%r)' % (token, tok_value), new_state
                     callback(tok, stack)
-                    _print_stack(stack)
+                    #_print_stack(stack)
                     break
                 current_state = new_state
                 variantes = self.states[current_state]
             # state callback
             #print current_state, '%s(%r)' % (token, tok_value), new_state
             callback(tok, stack)
-            _print_stack(stack)
+            #_print_stack(stack)
         if self.value_processor:
             self.value_processor(stack)
 
@@ -767,6 +822,12 @@ nested_tag_parser = Parser(dict(tag_parser.states, start=(
 ).iteritems())
 
 
+def base_template(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(BaseTemplate(u''.join([t[1] for t in my_tokens])))
+
+
 def html_comment(t, s):
     my_tokens = get_tokens(s)
     lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
@@ -809,6 +870,18 @@ def else_stmt(t, s):
         s.current.orelse.append(stmt)
     s.push(stmt)
 
+def slot_def(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(SlotDefNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
+def slot_call(t, s):
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    s.push(SlotCallNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset))
+
 block_parser = Parser((
     ('start', (
         (TOKEN_TEXT, 'text', push),
@@ -818,6 +891,9 @@ block_parser = Parser((
         (TOKEN_STATEMENT_IF, 'if_stmt', push),
         (TOKEN_STATEMENT_ELIF, 'elif_stmt', push),
         (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
+        (TOKEN_SLOT_DEF, 'slot_def', push),
+        (TOKEN_BASE_TEMPLATE, 'base', skip),
+        (TOKEN_STMT_CHAR, 'slot_call', skip),
         (TOKEN_COMMENT, 'comment', skip),
 
         (TOKEN_INDENT, 'indent', push_stack),
@@ -835,9 +911,15 @@ block_parser = Parser((
         (TOKEN_STATEMENT_IF, 'if_stmt', push),
         (TOKEN_STATEMENT_ELIF, 'elif_stmt', push),
         (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
+        (TOKEN_SLOT_DEF, 'slot_def', push),
+        (TOKEN_STMT_CHAR, 'slot_call', skip),
         (TOKEN_COMMENT, 'comment', skip),
         (TOKEN_NEWLINE, 'start', skip),
         (TOKEN_UNINDENT, 'start', pop_stack),
+        )),
+    ('base', (
+        (TOKEN_NEWLINE, 'start', base_template),
+        (all_tokens, 'base', push),
         )),
     ('text', (
         (TOKEN_EXPRESSION_START, 'expr', text_value),
@@ -871,13 +953,32 @@ block_parser = Parser((
         (TOKEN_NEWLINE, 'start', else_stmt),
         #(all_tokens, 'else_stmt', push),
         )),
+    ('slot_def', (
+        (TOKEN_NEWLINE, 'start', slot_def),
+        (all_tokens, 'slot_def', push),
+        )),
+    ('slot_call', (
+        (TOKEN_NEWLINE, 'start', slot_call),
+        (all_tokens, 'slot_call', push),
+        )),
 ))
 
 
-class MintParser(object):
-    def __init__(self, indent=4, slots=None):
-        self.indent = indent
+class SlotsGetter(ast.NodeTransformer):
+    'Node transformer, collects slots'
+    def __init__(self, slots=None):
         self.slots = slots or {}
+        self.base = None
+
+    def visit_FunctionDef(self, node):
+        self.slots[node.name] = node
+    def visit_BaseTemplate(self, node):
+        self.base = node.name
+
+
+class MintParser(object):
+    def __init__(self, indent=4):
+        self.indent = indent
 
     def parse(self, tokens_stream):
         ast_ = AstWrapper(1,0)
@@ -901,7 +1002,9 @@ class MintParser(object):
                     module.body.append(i)
             else:
                 module.body.append(result)
-        return module
+        slots_getter =  SlotsGetter()
+        slots_getter.visit(module)
+        return module, slots_getter.slots, slots_getter.base
 
 ############# PARSER END
 
@@ -923,9 +1026,20 @@ class Template(object):
         self._loader = loader
 
     def tree(self, slots=None):
-        parser = MintParser(indent=4, slots=slots)
-        tree = parser.parse(tokenizer(self.sourcefile))
-        # here we operate with base templates and so on
+        slots = slots or {}
+        parser = MintParser(indent=4)
+        tree, _slots, base_template_name = parser.parse(tokenizer(self.sourcefile))
+        for k, v in _slots.iteritems():
+            if k in slots:
+                del _slots[k]
+                v.name = '_'+k
+                _slots[v.name] = v
+        slots.update(_slots)
+        if base_template_name:
+            base_template = self._loader.get_template(base_template_name)
+            tree = base_template.tree(slots=slots)
+            for v in slots.values():
+                tree.body.insert(3, v)
         return tree
 
     def compile(self):
