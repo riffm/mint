@@ -323,7 +323,8 @@ ESCAPE_HELLPER = '__MINT_ESCAPE__'
 CURRENT_NODE = '__MINT_CURRENT_NODE__'
 
 
-# NODES
+##### NODES
+
 class Node(object):
     def __repr__(self):
         return '%s' % self.__class__.__name__
@@ -620,10 +621,12 @@ class SlotCallNode(Node):
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.text)
-# NODES END
+
+##### NODES END
 
 
 class RecursiveStack(object):
+    'Stack of stacks'
     def __init__(self):
         self.stacks = [[]]
 
@@ -685,10 +688,8 @@ class Parser(object):
                     new_state = state
                     break
                 elif isinstance(variante, Parser):
-                    #print 'NESTED PARSER'
                     variante.parse(itertools.chain([tok], tokens_stream), stack)
                     new_state = state
-                    #print 'EXIT FROM NESTED PARSER'
                     #NOTE: tok still points to first token
 
             if new_state is None:
@@ -725,7 +726,7 @@ def get_tokens(s):
     my_tokens.reverse()
     return my_tokens
 
-# Callbacks are functions that takes token and stack
+#NOTE: Callbacks are functions that takes token and stack
 skip = lambda t, s: None
 push = lambda t, s: s.push(t)
 pop_stack = lambda t, s: s.pop_stack()
@@ -739,8 +740,7 @@ def push_stack(t, s):
         s.push_stack(s.current.nodes)
 
 
-
-# data
+# text data and inline python expressions
 def py_expr(t, s):
     my_tokens = get_tokens(s)
     lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
@@ -758,8 +758,14 @@ def text_value_with_last(t, s):
     s.push(t)
     text_value(t, s)
 
+# parser of attribute value
 attr_data_parser = Parser((
+    # state name
     ('start', (
+        # variantes (token, new_state, callback)
+        #           ((token, token,...), new_state, callback)
+        #           (other_parser, new_state, callback)
+        #           ('other_parser', new_state, callback)
         (TOKEN_EXPRESSION_START, 'expr', text_value),
         (TOKEN_PARENTHESES_CLOSE, 'end', text_value),
         (all_except(TOKEN_NEWLINE), 'start', push),
@@ -771,6 +777,7 @@ attr_data_parser = Parser((
 ))
 
 
+# parser of text data and inline python expressions
 data_parser = Parser((
     ('start', (
         (TOKEN_EXPRESSION_START, 'expr', text_value),
@@ -784,7 +791,7 @@ data_parser = Parser((
 ))
 
 
-#tag
+# tag and tag attributes callbacks
 def tag_name(t, s):
     #if isinstance(s.current, (list, tuple)):
     my_tokens = get_tokens(s)
@@ -842,7 +849,7 @@ def tag_node_with_data(t, s):
     tag_node(t, s)
     push_stack(t, s)
 
-
+# tag parser
 tag_parser = Parser((
     ('start', (
         (TOKEN_TEXT, 'start', push),
@@ -871,7 +878,7 @@ tag_parser = Parser((
         )),
 ))
 
-
+# this is modified tag parser, supports inline tags with data
 nested_tag_parser = Parser(dict(tag_parser.states, start=(
         (TOKEN_TEXT, 'start', push),
         (TOKEN_MINUS, 'start', push),
@@ -883,11 +890,11 @@ nested_tag_parser = Parser(dict(tag_parser.states, start=(
 ).iteritems())
 
 
+# base parser callbacks
 def base_template(t, s):
     my_tokens = get_tokens(s)
     lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
     s.push(BaseTemplate(u''.join([t[1] for t in my_tokens])))
-
 
 def html_comment(t, s):
     my_tokens = get_tokens(s)
@@ -943,7 +950,9 @@ def slot_call(t, s):
     s.push(SlotCallNode(u''.join([t[1] for t in my_tokens]), 
                        lineno=lineno, col_offset=col_offset))
 
+# base parser (MAIN PARSER)
 block_parser = Parser((
+    # start is always the start of a new line
     ('start', (
         (TOKEN_TEXT, 'text', push),
         (TOKEN_EXPRESSION_START, 'expr', skip),
@@ -1051,7 +1060,6 @@ class SlotsGetter(ast.NodeTransformer):
     def __init__(self, slots=None):
         self.slots = slots or {}
         self.base = None
-
     def visit_FunctionDef(self, node):
         self.slots[node.name] = node
     def visit_BaseTemplate(self, node):
@@ -1059,6 +1067,11 @@ class SlotsGetter(ast.NodeTransformer):
 
 
 class MintParser(object):
+    '''
+    This class is wrapper to normal parsers (tag_parser, block_parser, etc.).
+    This wrapper returns slots and base template name (if any).
+    and returns ast module node.
+    '''
     def __init__(self, indent=4):
         self.indent = indent
 
@@ -1099,8 +1112,10 @@ class TemplateNotFound(Exception):
 class Template(object):
 
     def __init__(self, sourcefile, cache=True, loader=None):
-        self.sourcefile = StringIO(sourcefile) if isinstance(sourcefile, basestring) else sourcefile
-        self.filename = '<string>' if isinstance(sourcefile, basestring) else sourcefile.name
+        self.sourcefile = StringIO(sourcefile) if isinstance(sourcefile, basestring) \
+                                               else sourcefile
+        self.filename = '<string>' if isinstance(sourcefile, basestring) \
+                                   else sourcefile.name
         self.need_caching = cache
         # cached compiled code
         self.compiled_code = None
@@ -1111,6 +1126,8 @@ class Template(object):
         slots = slots or {}
         parser = MintParser(indent=4)
         tree, _slots, base_template_name = parser.parse(tokenizer(self.sourcefile))
+        # we do not want to override slot's names,
+        # so prefixing existing slots with underscore
         for k, v in _slots.iteritems():
             if k in slots:
                 del _slots[k]
@@ -1122,6 +1139,7 @@ class Template(object):
             tree = base_template.tree(slots=slots)
             for v in slots.values():
                 tree.body.insert(3, v)
+        # tree already has slots definitions and ready to be compiled
         return tree
 
     def compile(self):
@@ -1153,8 +1171,8 @@ class Template(object):
         return self.tostring(builder.close())[6:-7]
 
     def tostring(self, node):
-        # This is updated for html purpose code
-        # from xml.etree.ElementTree
+        '''xml.etree.ElementTree tostring function escapes all data,
+        but we need it our way.'''
         class dummy: pass
         data = []
         out = dummy()
@@ -1181,15 +1199,18 @@ class Template(object):
         return u''.join(data)
 
 
-
 class Loader(object):
 
     def __init__(self, *dirs, **kwargs):
         cache = kwargs.get('cache', False)
         self.dirs = []
+        # dirs - list of directories. Order matters
         for dir in dirs:
             self.dirs.append(path.abspath(dir))
         self.need_caching = cache
+        # caching of template code implemented in template,
+        # so we caching template initialized templates and
+        # do not worry about caching of compiled code
         self._templates_cache = {}
 
     def get_template(self, template):
@@ -1219,6 +1240,22 @@ class Markup(unicode):
 
     def __html__(self):
         return self
+
+    def __add__(self, other):
+        if hasattr(other, '__html__') or isinstance(other, basestring):
+            return self.__class__(unicode(self) + unicode(escape(other)))
+        return NotImplemented
+
+    def __radd__(self, other):
+        if hasattr(other, '__html__') or isinstance(other, basestring):
+            return self.__class__(unicode(escape(other)) + unicode(self))
+        return NotImplemented
+
+    def __mul__(self, num):
+        if isinstance(num, (int, long)):
+            return self.__class__(unicode.__mul__(self, num))
+        return NotImplemented
+    __rmul__ = __mul__
 
     def __unicode__(self):
         return self
