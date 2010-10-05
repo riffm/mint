@@ -77,6 +77,8 @@ COMMENT_CHAR = '--'
 
 # Tokens
 TOKEN_TAG_START = TokenWrapper('tag_start', value=TAG_CHAR)
+TOKEN_TAG_ATTR_SET = TokenWrapper('tag_attr_set', value='%s.' % TAG_CHAR)
+TOKEN_TAG_ATTR_APPEND = TokenWrapper('tag_attr_append', value='%s+' % TAG_CHAR)
 TOKEN_BASE_TEMPLATE = TokenWrapper('base_template', value='%sbase: ' % STMT_CHAR)
 TOKEN_STATEMENT_IF = TokenWrapper('statement_if', value='%sif ' % STMT_CHAR)
 TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', value='%selif ' % STMT_CHAR)
@@ -103,6 +105,8 @@ TOKEN_UNINDENT = TokenUnindent()
 
 
 tokens = (
+    TOKEN_TAG_ATTR_SET,
+    TOKEN_TAG_ATTR_APPEND,
     TOKEN_TAG_START,
     TOKEN_BASE_TEMPLATE,
     TOKEN_STATEMENT_IF,
@@ -396,6 +400,45 @@ class TagAttrNode(Node):
         return '%s(%r, nodes=%r)' % (self.__class__.__name__, self.name, self.nodes)
 
 
+class SetAttrNode(Node):
+    def __init__(self, attr_node):
+        self.key, self.value = attr_node.get_value()
+        self.ast_ = attr_node.ast_
+
+    def to_ast(self):
+        ast_ = self.ast_
+        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                                            attr='set'),
+                                        args=[self.key, self.value],
+                                        keywords=[],
+                                        starargs=None, kwargs=None))
+
+
+class AppendAttrNode(Node):
+    def __init__(self, attr_node):
+        self.key, self.value = attr_node.get_value()
+        self.ast_ = attr_node.ast_
+
+    def to_ast(self):
+        ast_ = self.ast_
+        value = ast_.BinOp(
+            left=ast_.BoolOp(
+                values=[ast_.Call(
+                    func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                        attr='get'),
+                    args=[self.key],
+                    keywords=[],
+                    starargs=None, kwargs=None), ast_.Str(s=u'')],
+                op=ast.Or()),
+            op=ast.Add(), 
+            right=self.value)
+        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                                            attr='set'),
+                                        args=[self.key, value],
+                                        keywords=[],
+                                        starargs=None, kwargs=None))
+
+
 class TagNode(Node):
     def __init__(self, name, attrs=None, lineno=None, col_offset=None):
         self.name = name
@@ -652,14 +695,14 @@ class Parser(object):
             # process of new_state
             elif new_state != current_state:
                 if new_state == 'end':
-                    #print current_state, '%s(%r)' % (token, tok_value), new_state
+                    print current_state, '%s(%r)' % (token, tok_value), new_state
                     callback(tok, stack)
                     #_print_stack(stack)
                     break
                 current_state = new_state
                 variantes = self.states[current_state]
             # state callback
-            #print current_state, '%s(%r)' % (token, tok_value), new_state
+            print current_state, '%s(%r)' % (token, tok_value), new_state
             callback(tok, stack)
             #_print_stack(stack)
         if self.value_processor:
@@ -760,6 +803,22 @@ def tag_attr_value(t, s):
         nodes.append(s.pop())
     attr = s.current
     attr.nodes = reversed(nodes)
+
+def set_attr(t, s):
+    nodes = []
+    while not isinstance(s.current, TagAttrNode):
+        nodes.append(s.pop())
+    attr = s.pop()
+    attr.nodes = reversed(nodes)
+    s.push(SetAttrNode(attr))
+
+def append_attr(t, s):
+    nodes = []
+    while not isinstance(s.current, TagAttrNode):
+        nodes.append(s.pop())
+    attr = s.pop()
+    attr.nodes = reversed(nodes)
+    s.push(AppendAttrNode(attr))
 
 def tag_node(t, s):
     attrs = []
@@ -886,6 +945,8 @@ block_parser = Parser((
     ('start', (
         (TOKEN_TEXT, 'text', push),
         (TOKEN_EXPRESSION_START, 'expr', skip),
+        (TOKEN_TAG_ATTR_SET, 'set_attr', skip),
+        (TOKEN_TAG_ATTR_APPEND, 'append_attr', skip),
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_STATEMENT_FOR, 'for_stmt', push),
         (TOKEN_STATEMENT_IF, 'if_stmt', push),
@@ -905,7 +966,8 @@ block_parser = Parser((
     ('indent', (
         (TOKEN_TEXT, 'text', push),
         (TOKEN_EXPRESSION_START, 'expr', skip),
-        (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_TAG_ATTR_APPEND, 'append_attr', skip),
+        (TOKEN_TAG_ATTR_SET, 'set_attr', skip),
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_STATEMENT_FOR, 'for_stmt', push),
         (TOKEN_STATEMENT_IF, 'if_stmt', push),
@@ -936,6 +998,24 @@ block_parser = Parser((
     ('comment', (
         (TOKEN_NEWLINE, 'start', html_comment),
         (all_tokens, 'comment', push),
+        )),
+    ('set_attr', (
+        (TOKEN_TEXT, 'set_attr', push),
+        (TOKEN_MINUS, 'set_attr', push),
+        (TOKEN_COLON, 'set_attr', push),
+        (TOKEN_PARENTHESES_OPEN, 'set_attr_value', tag_attr_name),
+        )),
+    ('set_attr_value', (
+        (attr_data_parser, 'start', set_attr),
+        )),
+    ('append_attr', (
+        (TOKEN_TEXT, 'append_attr', push),
+        (TOKEN_MINUS, 'append_attr', push),
+        (TOKEN_COLON, 'append_attr', push),
+        (TOKEN_PARENTHESES_OPEN, 'append_attr_value', tag_attr_name),
+        )),
+    ('append_attr_value', (
+        (attr_data_parser, 'start', append_attr),
         )),
     ('for_stmt', (
         (TOKEN_NEWLINE, 'start', for_stmt),
@@ -1383,6 +1463,14 @@ class Printer(ast.NodeVisitor):
         self.src.write(' ')
         self.visit(node.right)
 
+    def visit_BoolOp(self, node):
+        for i, n in enumerate(node.values):
+            self.visit(n)
+            if not i:
+                self.src.write(' ')
+                self.visit(node.op)
+                self.src.write(' ')
+
     # Operators
     def visit_Add(self, node):
         self.src.write('+')
@@ -1401,6 +1489,9 @@ class Printer(ast.NodeVisitor):
 
     def visit_Gt(self, node):
         self.src.write('>=')
+
+    def visit_Or(self, node):
+        self.src.write('or')
 
 
 if __name__ == '__main__':
