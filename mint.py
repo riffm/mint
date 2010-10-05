@@ -203,6 +203,9 @@ def indent_tokenizer(tokens_stream, indent=4):
                 # first not newline or whitespace token
                 yield next_tok
                 continue
+            yield tok
+            tok = next_tok
+            token, value, lineno, pos = next_tok
         # indenting and unindenting
         if token is TOKEN_NEWLINE:
             yield tok
@@ -967,6 +970,7 @@ block_parser = Parser((
         (TOKEN_BASE_TEMPLATE, 'base', skip),
         (TOKEN_STMT_CHAR, 'slot_call', skip),
         (TOKEN_COMMENT, 'comment', skip),
+        (TOKEN_BACKSLASH, 'escaped_text', skip),
 
         (TOKEN_INDENT, 'indent', push_stack),
         (TOKEN_UNINDENT, 'start', pop_stack),
@@ -987,6 +991,7 @@ block_parser = Parser((
         (TOKEN_SLOT_DEF, 'slot_def', push),
         (TOKEN_STMT_CHAR, 'slot_call', skip),
         (TOKEN_COMMENT, 'comment', skip),
+        (TOKEN_BACKSLASH, 'escaped_text', skip),
         (TOKEN_NEWLINE, 'start', skip),
         (TOKEN_UNINDENT, 'start', pop_stack),
         )),
@@ -1002,6 +1007,10 @@ block_parser = Parser((
     ('expr', (
         (TOKEN_EXPRESSION_END, 'text', py_expr),
         (all_tokens, 'expr', push),
+        )),
+    ('escaped_text', (
+        (TOKEN_NEWLINE, 'start', text_value_with_last),
+        (all_except(TOKEN_INDENT), 'escaped_text', push),
         )),
     ('tag', (
         (tag_parser, 'start', skip),
