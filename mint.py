@@ -473,6 +473,8 @@ class IfStmtNode(Node):
         if not expr.endswith(':'):
             expr += ':'
         expr += 'pass'
+        if expr.startswith('el'):
+            expr = expr[2:]
         value = ast.parse(expr).body[0]
         value.body = []
         value.lineno = ast_.lineno
@@ -631,6 +633,8 @@ def push_stack(t, s):
     if isinstance(s.current, ElseStmtNode):
         stmt = s.pop()
         s.push_stack(stmt.nodes)
+    elif isinstance(s.current, IfStmtNode) and s.current.orelse:
+        s.push_stack(s.current.orelse[-1].nodes)
     else:
         s.push_stack(s.current.nodes)
 
@@ -781,13 +785,28 @@ def if_stmt(t, s):
     s.push(IfStmtNode(u''.join([t[1] for t in my_tokens]), 
                        lineno=lineno, col_offset=col_offset))
 
+def elif_stmt(t, s):
+    if not isinstance(s.current, IfStmtNode):
+        pass
+        #XXX: raise TemplateError
+    my_tokens = get_tokens(s)
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    stmt = IfStmtNode(u''.join([t[1] for t in my_tokens]), 
+                       lineno=lineno, col_offset=col_offset)
+    s.current.orelse.append(stmt)
+
 def else_stmt(t, s):
     lineno, col_offset = t[2], t[3]
     if not isinstance(s.current, IfStmtNode):
         pass
         #XXX: raise TemplateError
     stmt = ElseStmtNode(lineno=lineno, col_offset=col_offset)
-    s.current.orelse.append(stmt)
+    # elif
+    if s.current.orelse:
+        s.current.orelse[-1].orelse.append(stmt)
+    # just else
+    else:
+        s.current.orelse.append(stmt)
     s.push(stmt)
 
 block_parser = Parser((
@@ -797,6 +816,7 @@ block_parser = Parser((
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_STATEMENT_FOR, 'for_stmt', push),
         (TOKEN_STATEMENT_IF, 'if_stmt', push),
+        (TOKEN_STATEMENT_ELIF, 'elif_stmt', push),
         (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
         (TOKEN_COMMENT, 'comment', skip),
 
@@ -813,6 +833,7 @@ block_parser = Parser((
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_STATEMENT_FOR, 'for_stmt', push),
         (TOKEN_STATEMENT_IF, 'if_stmt', push),
+        (TOKEN_STATEMENT_ELIF, 'elif_stmt', push),
         (TOKEN_STATEMENT_ELSE, 'else_stmt', skip),
         (TOKEN_COMMENT, 'comment', skip),
         (TOKEN_NEWLINE, 'start', skip),
@@ -841,6 +862,10 @@ block_parser = Parser((
     ('if_stmt', (
         (TOKEN_NEWLINE, 'start', if_stmt),
         (all_tokens, 'if_stmt', push),
+        )),
+    ('elif_stmt', (
+        (TOKEN_NEWLINE, 'start', elif_stmt),
+        (all_tokens, 'elif_stmt', push),
         )),
     ('else_stmt', (
         (TOKEN_NEWLINE, 'start', else_stmt),
