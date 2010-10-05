@@ -314,6 +314,7 @@ TAG_END = '__MINT_TAG_END__'
 DATA = '__MINT_DATA__'
 UNICODE = '__MINT__UNICODE__'
 ESCAPE_HELLPER = '__MINT_ESCAPE__'
+CURRENT_NODE = '__MINT_CURRENT_NODE__'
 
 
 # NODES
@@ -396,7 +397,7 @@ class TagNode(Node):
 
     def to_ast(self):
         ast_ = self.ast_
-        name = '__node_%s' % id(self)
+        name = CURRENT_NODE
         attrs = ast_.Dict(keys=[], values=[])
         for a in self.attrs:
             k, v = a.get_value()
@@ -519,8 +520,10 @@ class Parser(object):
                     new_state = state
                     break
                 elif isinstance(variante, Parser):
+                    #print 'NESTED PARSER'
                     variante.parse(itertools.chain([tok], tokens_stream), stack)
                     new_state = state
+                    #print 'EXIT FROM NESTED PARSER'
                     #NOTE: tok still points to first token
 
             if new_state is None:
@@ -528,17 +531,25 @@ class Parser(object):
                         % (current_state, token, tok_value, lineno, pos))
             # process of new_state
             elif new_state != current_state:
-                print current_state, '%s(%r)' % (token, tok_value), new_state
                 if new_state == 'end':
+                    #print current_state, '%s(%r)' % (token, tok_value), new_state
                     callback(tok, stack)
+                    #_print_stack(stack)
                     break
                 current_state = new_state
                 variantes = self.states[current_state]
             # state callback
+            #print current_state, '%s(%r)' % (token, tok_value), new_state
             callback(tok, stack)
-            print 'callback: ', stack
+            #_print_stack(stack)
         if self.value_processor:
             self.value_processor(stack)
+
+def _print_stack(s):
+    print '[stack]'
+    for i in s:
+        print ' '*4, i
+    print '[end of stack]\n'
 
 
 # utils functions
@@ -642,9 +653,6 @@ def tag_node_with_data(t, s):
     tag_node(t, s)
     push_stack(t, s)
 
-def nested_tag(t, s):
-    tag_node(t, s)
-    pop_stack(t, s)
 
 tag_parser = Parser((
     ('start', (
@@ -654,7 +662,6 @@ tag_parser = Parser((
         (TOKEN_DOT, 'attr', tag_name),
         (TOKEN_WHITESPACE, 'continue', tag_node_with_data),
         (TOKEN_NEWLINE, 'end', tag_node),
-        #(TOKEN_UNINDENT, 'end', pop_stack),
         )),
     ('attr', (
         (TOKEN_TEXT, 'attr', push),
@@ -668,11 +675,10 @@ tag_parser = Parser((
     ('continue', (
         (TOKEN_TAG_START, 'nested_tag', skip),
         (TOKEN_NEWLINE, 'end', pop_stack),
-        #NOTE: double pop
-        (data_parser, 'end', lambda t,s: [pop_stack(t, s) for i in range(2)]),
+        (data_parser, 'end', pop_stack),
         )),
     ('nested_tag', (
-        ('nested_tag_parser', 'end', skip),
+        ('nested_tag_parser', 'end', pop_stack),
         )),
 ))
 
@@ -683,7 +689,7 @@ nested_tag_parser = Parser(dict(tag_parser.states, start=(
         (TOKEN_COLON, 'start', push),
         (TOKEN_DOT, 'attr', tag_name),
         (TOKEN_WHITESPACE, 'continue', tag_node_with_data),
-        (TOKEN_NEWLINE, 'end', nested_tag),
+        (TOKEN_NEWLINE, 'end', tag_node),
         )
 ).iteritems())
 
@@ -707,12 +713,23 @@ block_parser = Parser((
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_TAG_START, 'tag', skip),
         (TOKEN_STATEMENT_FOR, 'for_stmt', push),
-
         (TOKEN_COMMENT, 'comment', skip),
-        (TOKEN_INDENT, 'start', push_stack),
+
+        (TOKEN_INDENT, 'indent', push_stack),
         (TOKEN_UNINDENT, 'start', pop_stack),
         (TOKEN_NEWLINE, 'start', skip),
         (TOKEN_EOF, 'end', skip),
+        )),
+    # to prevent multiple indentions in a row
+    ('indent', (
+        (TOKEN_TEXT, 'text', push),
+        (TOKEN_EXPRESSION_START, 'expr', skip),
+        (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_TAG_START, 'tag', skip),
+        (TOKEN_STATEMENT_FOR, 'for_stmt', push),
+        (TOKEN_COMMENT, 'comment', skip),
+        (TOKEN_NEWLINE, 'start', skip),
+        (TOKEN_UNINDENT, 'start', pop_stack),
         )),
     ('text', (
         (TOKEN_EXPRESSION_START, 'expr', text_value),
