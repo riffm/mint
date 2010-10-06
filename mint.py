@@ -287,7 +287,6 @@ def unescape(obj):
 
 from functools import partial
 
-_selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
 
 
 class AstWrapper(object):
@@ -1183,30 +1182,32 @@ class Template(object):
 
     def tostring(self, node):
         '''xml.etree.ElementTree tostring function escapes all data,
-        but we need it our way.'''
+        but we need it our way. And of course mint is html oriented'''
         class dummy: pass
         data = []
         out = dummy()
         out.write = data.append
         tag = node.tag
         items = node.items()
+        selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
         out.write(u'<' + tag)
         if items:
             items.sort() # lexical order
             for k, v in items:
                 out.write(u' %s="%s"' % (k, v))
-        if node.text or len(node):
-            out.write(u'>')
-            if node.text:
-                # text must be escaped during tree building
-                out.write(node.text)
-            for n in node:
-                out.write(self.tostring(n))
-            out.write(u'</' + tag + '>')
-        else:
+        if tag in selfclosed:
             out.write(u' />')
-        if node.tail:
-            out.write(node.tail)
+        else:
+            out.write(u'>')
+            if node.text or len(node):
+                if node.text:
+                    # text must be escaped during tree building
+                    out.write(node.text)
+                for n in node:
+                    out.write(self.tostring(n))
+            out.write(u'</' + tag + '>')
+            if node.tail:
+                out.write(node.tail)
         return u''.join(data)
 
 
