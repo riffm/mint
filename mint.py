@@ -1134,7 +1134,6 @@ class Template(object):
     def tree(self, slots=None):
         slots = slots or {}
         parser = MintParser(indent=4)
-        print self.filename
         source = self.source if self.source else open(self.filename, 'r')
         tree, _slots, base_template_name = parser.parse(tokenizer(source))
         # we do not want to override slot's names,
@@ -1158,16 +1157,12 @@ class Template(object):
 
     def render(self, **kwargs):
         if self.need_caching:
-            print 'Need caching'
             if self.compiled_code:
-                print 'Geting code from cache'
                 code = self.compiled_code
             else:
-                print 'Compiling and caching'
                 code = self.compile()
                 self.compiled_code = code
         else:
-            print 'Not caching'
             code = self.compile()
         ns = {
             'utils':utils,
