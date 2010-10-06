@@ -1120,21 +1120,23 @@ class TemplateNotFound(Exception):
 
 class Template(object):
 
-    def __init__(self, sourcefile, cache=True, loader=None):
-        self.sourcefile = StringIO(sourcefile) if isinstance(sourcefile, basestring) \
-                                               else sourcefile
-        self.filename = '<string>' if isinstance(sourcefile, basestring) \
-                                   else sourcefile.name
+    def __init__(self, filename=None, source=None, cache=False, loader=None, globals=None):
+        assert filename or source, 'Please provide filename or sourcecode'
+        self.filename = filename if filename else '<string>'
+        self.source = source
         self.need_caching = cache
         # cached compiled code
         self.compiled_code = None
         #self._loader = weakref.proxy(loader) if loader else None
         self._loader = loader
+        self.globals = globals or {}
 
     def tree(self, slots=None):
         slots = slots or {}
         parser = MintParser(indent=4)
-        tree, _slots, base_template_name = parser.parse(tokenizer(self.sourcefile))
+        print self.filename
+        source = self.source if self.source else open(self.filename, 'r')
+        tree, _slots, base_template_name = parser.parse(tokenizer(source))
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
         for k, v in _slots.iteritems():
@@ -1156,18 +1158,23 @@ class Template(object):
 
     def render(self, **kwargs):
         if self.need_caching:
+            print 'Need caching'
             if self.compiled_code:
+                print 'Geting code from cache'
                 code = self.compiled_code
             else:
+                print 'Compiling and caching'
                 code = self.compile()
                 self.compiled_code = code
         else:
+            print 'Not caching'
             code = self.compile()
         ns = {
             'utils':utils,
             UNICODE:unicode,
             ESCAPE_HELLPER:escape,
         }
+        ns.update(self.globals)
         builder = TreeBuilder()
         ns[TREE_BUILDER] = builder
         # NOTE: TreeBuilder will ignore first zero level elements
@@ -1221,6 +1228,7 @@ class Loader(object):
         # so we caching template initialized templates and
         # do not worry about caching of compiled code
         self._templates_cache = {}
+        self.globals = kwargs.get('globals', {})
 
     def get_template(self, template):
         if template in self._templates_cache:
@@ -1228,8 +1236,8 @@ class Loader(object):
         for dir in self.dirs:
             location = path.join(dir, template)
             if path.exists(location) and path.isfile(location):
-                tmpl = Template(open(location, 'r'), cache=self.need_caching,
-                                loader=self)
+                tmpl = Template(location, cache=self.need_caching,
+                                loader=self, globals=self.globals)
                 self._templates_cache[template] = tmpl
                 return tmpl
         raise TemplateNotFound(template)
