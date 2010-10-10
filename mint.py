@@ -317,6 +317,7 @@ class WrongToken(Exception): pass
 
 # variables names (we do not want to override user variables and vise versa)
 TREE_BUILDER = '__MINT_TREE_BUILDER__'
+MAIN_FUNCTION = '__MINT_MAIN__'
 TAG_START = '__MINT_TAG_START__'
 TAG_END = '__MINT_TAG_END__'
 DATA = '__MINT_DATA__'
@@ -739,6 +740,8 @@ def push_stack(t, s):
     elif isinstance(s.current, IfStmtNode) and s.current.orelse:
         s.push_stack(s.current.orelse[-1].nodes)
     else:
+        if not hasattr(s.current, 'nodes'):
+            raise SyntaxError('Unexpected indent at line %d' % t[2])
         s.push_stack(s.current.nodes)
 
 
@@ -1069,6 +1072,15 @@ class SlotsGetter(ast.NodeTransformer):
         self.slots = slots or {}
         self.base = None
     def visit_FunctionDef(self, node):
+        if node.name == MAIN_FUNCTION:
+            _nones = []
+            for n in node.body:
+                v = self.visit(n)
+                if v is None:
+                    _nones.append(n)
+            for n in _nones:
+                node.body.remove(n)
+            return node
         self.slots[node.name] = node
     def visit_BaseTemplate(self, node):
         self.base = node.name
@@ -1095,18 +1107,22 @@ class MintParser(object):
             ast_.Assign(targets=[ast_.Name(id=DATA, ctx=Store())],
                         value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
                                              attr='data')),
+            ast_.FunctionDef(name=MAIN_FUNCTION, body=[], 
+                             args=ast_.arguments(args=[], vararg=None, kwarg=None, defaults=[]),
+                            decorator_list=[]),
             ])
         smart_stack = RecursiveStack()
         block_parser.parse(tokens_stream, smart_stack)
+        ctx = module.body[3].body
         for item in smart_stack.stack:
             result = item.to_ast()
             if isinstance(result, (list, tuple)):
                 for i in result:
-                    module.body.append(i)
+                    ctx.append(i)
             else:
-                module.body.append(result)
+                ctx.append(result)
         slots_getter =  SlotsGetter()
-        slots_getter.visit(module)
+        slots_getter.visit(module.body[3])
         return module, slots_getter.slots, slots_getter.base
 
 ############# PARSER END
@@ -1146,6 +1162,7 @@ class Template(object):
         if base_template_name:
             base_template = self._loader.get_template(base_template_name)
             tree = base_template.tree(slots=slots)
+        elif slots is not None:
             for v in slots.values():
                 tree.body.insert(3, v)
         # tree already has slots definitions and ready to be compiled
@@ -1176,6 +1193,8 @@ class Template(object):
         builder.start('root', {})
         ns.update(kwargs)
         exec code in ns
+        # execute template main function
+        ns[MAIN_FUNCTION]()
         builder.end('root')
         #XXX: this is ugly. to not show root element we slice result
         return self.tostring(builder.close())[6:-7]
@@ -1554,5 +1573,3 @@ if __name__ == '__main__':
     printer = Printer()
     printer.visit(template.tree())
     print printer.src.getvalue()
-    #for t in tokenizer(open(template_name, 'r')):
-        #print t
