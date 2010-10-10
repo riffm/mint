@@ -739,6 +739,8 @@ def push_stack(t, s):
     elif isinstance(s.current, IfStmtNode) and s.current.orelse:
         s.push_stack(s.current.orelse[-1].nodes)
     else:
+        if not hasattr(s.current, 'nodes'):
+            raise SyntaxError('Unexpected indent at line %d' % t[2])
         s.push_stack(s.current.nodes)
 
 
@@ -1554,5 +1556,3 @@ if __name__ == '__main__':
     printer = Printer()
     printer.visit(template.tree())
     print printer.src.getvalue()
-    #for t in tokenizer(open(template_name, 'r')):
-        #print t
