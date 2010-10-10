@@ -4,7 +4,7 @@ from distutils.core import setup
 
 setup(
     name='mint',
-    version='0.2',
+    version='0.3',
     description='Simple indetion based template engine',
     author='Tim Perevezentsev',
     author_email='riffm2005@gmail.com',
