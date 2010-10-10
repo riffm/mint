@@ -973,11 +973,11 @@ block_parser = Parser((
         (TOKEN_STMT_CHAR, 'slot_call', skip),
         (TOKEN_COMMENT, 'comment', skip),
         (TOKEN_BACKSLASH, 'escaped_text', skip),
-
         (TOKEN_INDENT, 'indent', push_stack),
         (TOKEN_UNINDENT, 'start', pop_stack),
         (TOKEN_NEWLINE, 'start', skip),
         (TOKEN_EOF, 'end', skip),
+        (all_tokens, 'text', push),
         )),
     # to prevent multiple indentions in a row
     ('indent', (
