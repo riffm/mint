@@ -10,15 +10,17 @@ class MintLexer(RegexLexer):
     filenames = ['*.mint']
     tokens = {
         'root': [
-            (r'(\s*@[a-zA-Z_:]+)(\.)', bygroups(Name.Tag, Text), 'attribute'),
-            (r'\s*@[a-zA-Z_:]+', Name.Tag),
+            (r'(\s*@[a-zA-Z_:-]+)(\.)', bygroups(Name.Tag, Text), 'attribute'),
+            (r'\s*@[a-zA-Z_:-]+', Name.Tag),
+            (r'\s*@\+', Name.Tag, 'attribute'),
+            (r'\s*@.', Name.Tag, 'attribute'),
             (r'\s*#', Text, 'python-expression'),
             (r'\s*\\.*$', Text, 'text'),
             (r'\s*\{\{', String.Symbol, 'python-expression'),
             (r'[^@]', Text, 'text'),
         ],
         'attribute':[
-            (r'[a-zA-Z_:]+\(', Name.Attribute),
+            (r'[a-zA-Z_:-]+\(', Name.Attribute),
             (r'(\))(\.)', bygroups(Name.Attribute, Text)),
             include('text'),
             (r'\)', Name.Attribute, 'root'),
@@ -53,6 +55,8 @@ code = '''
                 -- comment string
                 @td -- comment
                     text text {{ range(2) }}
+                    @.class(name)
+                    @+class(name)
                     text text
 
         #def content(arg, arg1='value'):
