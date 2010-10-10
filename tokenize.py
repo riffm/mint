@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 
-from mint import TokensStream
+from mint import tokenizer
 
 if __name__ == '__main__':
     import sys
-    stream = TokensStream(open(sys.argv[1], 'r'))
-    for t in stream.tokenize():
+    for t in tokenizer(open(sys.argv[1], 'r')):
         print t
