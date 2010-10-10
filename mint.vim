@@ -18,9 +18,12 @@ syn keyword mintStatement    lambda yield
 syn match mintStatement    /^#base:/
 syn match mintStatement    /^\s*#/ nextgroup=mintFunction skipwhite
 syn match mintStatement    /^\s*#def/ nextgroup=mintFunction skipwhite
-syn match   mintStatement    "@" display nextgroup=mintFunction skipwhite
-syn match   mintFunction    "[a-zA-Z_][a-zA-Z0-9_:]*" contained nextgroup=mintAttribute
-syn match   mintAttribute    "\.[a-zA-Z_][a-zA-Z0-9_:]*"
+syn match   mintStatement    /^\s*@/ display nextgroup=mintFunction skipwhite
+syn match   mintStatement    /^\s*@+[a-zA-Z_][a-zA-Z0-9_:-]*/ display contains=mintFunction
+syn match   mintStatement    /^\s*@\.[a-zA-Z_][a-zA-Z0-9_:-]*/ display contains=mintFunction
+"syn match   mintStatement    "@" display nextgroup=mintFunction skipwhite
+syn match   mintFunction    "[a-zA-Z_][a-zA-Z0-9_:-]*" contained nextgroup=mintAttribute
+syn match   mintAttribute    "\.[a-zA-Z_][a-zA-Z0-9_:-]*" contained
 syn region mintVariable     start=/{{/ end=/}}/ contains=mintStatement,mintPythonRepeat,mintException
 syn match mintRepeat    /^\s*#for/
 syn keyword mintPythonRepeat    for while contained
