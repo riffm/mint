@@ -1231,17 +1231,14 @@ class Template(object):
         return tree
 
     def compile(self):
+        if self.need_caching:
+            if not self.compiled_code:
+                self.compiled_code = compile(self.tree(), self.filename, 'exec')
+            return self.compiled_code
         return compile(self.tree(), self.filename, 'exec')
 
     def render(self, **kwargs):
-        if self.need_caching:
-            if self.compiled_code:
-                code = self.compiled_code
-            else:
-                code = self.compile()
-                self.compiled_code = code
-        else:
-            code = self.compile()
+        code = self.compile()
         ns = {
             'utils':utils,
             UNICODE:unicode,
@@ -1253,6 +1250,18 @@ class Template(object):
         exec code in ns
         # execute template main function
         return ns[MAIN_FUNCTION]()
+
+    def slot(self, name):
+        code = self.compile()
+        ns = {
+            'utils':utils,
+            UNICODE:unicode,
+            ESCAPE_HELLPER:escape,
+            TREE_FACTORY:new_tree,
+        }
+        ns.update(self.globals)
+        exec code in ns
+        return ns[name]
 
 
 class Loader(object):
@@ -1484,15 +1493,6 @@ class Printer(ast.NodeVisitor):
             self.visit(n)
         self._indent -= 1
 
-    #def visit_IfExp(self, node):
-        #self.make_tab()
-        #self.src.write('if ')
-        #self.visit(node.test)
-        #self.src.write(':\n')
-        #self.indent += 1
-        #self.generic_visit(node)
-        #self.indent -= 1
-
     def visit_Tuple(self, node):
         self.src.write('(')
         for i,el in enumerate(node.elts):
@@ -1577,22 +1577,16 @@ class Printer(ast.NodeVisitor):
     # Operators
     def visit_Add(self, node):
         self.src.write('+')
-
     def visit_Mod(self, node):
         self.src.write('%')
-
     def visit_Eq(self, node):
         self.src.write('==')
-
     def visit_NotEq(self, node):
         self.src.write('!=')
-
     def visit_Lt(self, node):
         self.src.write('<=')
-
     def visit_Gt(self, node):
         self.src.write('>=')
-
     def visit_Or(self, node):
         self.src.write('or')
 
