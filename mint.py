@@ -16,7 +16,7 @@ from os import path
 from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
-from xml.etree.ElementTree import TreeBuilder, tostring
+from xml.etree.ElementTree import TreeBuilder, Element
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +317,7 @@ class WrongToken(Exception): pass
 
 # variables names (we do not want to override user variables and vise versa)
 TREE_BUILDER = '__MINT_TREE_BUILDER__'
+TREE_FACTORY = '__MINT_TREE_FACTORY__'
 MAIN_FUNCTION = '__MINT_MAIN__'
 TAG_START = '__MINT_TAG_START__'
 TAG_END = '__MINT_TAG_END__'
@@ -617,10 +618,11 @@ class SlotCallNode(Node):
     def to_ast(self):
         ast_ = self.ast_
         expr = self.text
-        value = ast.parse(expr).body[0]
+        value = ast.parse(expr).body[0].value
         value.lineno = ast_.lineno
         value.col_offset = ast_.col_offset
-        return value
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[value], keywords=[]))
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.text)
@@ -1072,6 +1074,23 @@ class SlotsGetter(ast.NodeTransformer):
         self.slots = slots or {}
         self.base = None
     def visit_FunctionDef(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        new_tree_call = ast_.Assign(targets=[ast_.Tuple(elts=[
+                                                         ast_.Name(id=TREE_BUILDER, ctx=Store()),
+                                                         ast_.Name(id=TAG_START, ctx=Store()),
+                                                         ast_.Name(id=TAG_END, ctx=Store()),
+                                                         ast_.Name(id=DATA, ctx=Store())],
+                                                       ctx=Store())],
+                                    value=ast_.Call(func=ast_.Name(id=TREE_FACTORY),
+                                                    args=[],
+                                                    keywords=[], starargs=None, kwargs=None))
+        tree_to_unicode_call = ast_.Return(value=ast_.Call(func=ast_.Attribute(
+                                                value=ast_.Name(id=TREE_BUILDER),
+                                                attr='to_unicode'),
+                                           args=[],
+                                           keywords=[]))
+        node.body.insert(0, new_tree_call)
+        node.body.append(tree_to_unicode_call)
         if node.name == MAIN_FUNCTION:
             _nones = []
             for n in node.body:
@@ -1098,22 +1117,14 @@ class MintParser(object):
     def parse(self, tokens_stream):
         ast_ = AstWrapper(1,0)
         module = ast_.Module(body=[
-            ast_.Assign(targets=[ast_.Name(id=TAG_START, ctx=Store())],
-                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
-                                             attr='start')),
-            ast_.Assign(targets=[ast_.Name(id=TAG_END, ctx=Store())],
-                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
-                                             attr='end')),
-            ast_.Assign(targets=[ast_.Name(id=DATA, ctx=Store())],
-                        value=ast_.Attribute(value=ast_.Name(id=TREE_BUILDER), 
-                                             attr='data')),
-            ast_.FunctionDef(name=MAIN_FUNCTION, body=[], 
-                             args=ast_.arguments(args=[], vararg=None, kwarg=None, defaults=[]),
-                            decorator_list=[]),
+            ast_.FunctionDef(name=MAIN_FUNCTION, 
+                             body=[], 
+                             args=ast_.arguments(args=[], vararg=None, kwargs=None, defaults=[]),
+                             decorator_list=[]),
             ])
         smart_stack = RecursiveStack()
         block_parser.parse(tokens_stream, smart_stack)
-        ctx = module.body[3].body
+        ctx = module.body[0].body
         for item in smart_stack.stack:
             result = item.to_ast()
             if isinstance(result, (list, tuple)):
@@ -1122,7 +1133,7 @@ class MintParser(object):
             else:
                 ctx.append(result)
         slots_getter =  SlotsGetter()
-        slots_getter.visit(module.body[3])
+        slots_getter.visit(module.body[0])
         return module, slots_getter.slots, slots_getter.base
 
 ############# PARSER END
@@ -1131,6 +1142,57 @@ class MintParser(object):
 ############# API
 class TemplateNotFound(Exception):
     pass
+
+
+class RootTreeBuilder(TreeBuilder):
+    'Tree with root element already set'
+    def __init__(self, *args, **kwargs):
+        TreeBuilder.__init__(self, *args, **kwargs)
+        self.start('root', {})
+
+    def to_unicode(self):
+        class dummy: pass
+        data = []
+        out = dummy()
+        out.write = data.append
+        # out - fast writable object
+        self.end('root')
+        root = self.close()
+        if root.text:
+            out.write(root.text)
+        for node in root:
+            self._node_to_unicode(out, node)
+        if root.tail:
+            out.write(root.tail)
+        return Markup(u''.join(data))
+
+    def _node_to_unicode(self, out, node):
+        #NOTE: all data must be escaped during tree building
+        tag = node.tag
+        items = node.items()
+        selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
+        out.write(u'<' + tag)
+        if items:
+            items.sort() # lexical order
+            for k, v in items:
+                out.write(u' %s="%s"' % (k, v))
+        if tag in selfclosed:
+            out.write(u' />')
+        else:
+            out.write(u'>')
+            if node.text or len(node):
+                if node.text:
+                    out.write(node.text)
+                for n in node:
+                    self._node_to_unicode(out, n)
+            out.write(u'</' + tag + '>')
+            if node.tail:
+                out.write(node.tail)
+
+
+def new_tree():
+    tree = RootTreeBuilder()
+    return tree, tree.start, tree.end, tree.data
 
 
 class Template(object):
@@ -1164,7 +1226,7 @@ class Template(object):
             tree = base_template.tree(slots=slots)
         elif slots is not None:
             for v in slots.values():
-                tree.body.insert(3, v)
+                tree.body.insert(0, v)
         # tree already has slots definitions and ready to be compiled
         return tree
 
@@ -1184,50 +1246,13 @@ class Template(object):
             'utils':utils,
             UNICODE:unicode,
             ESCAPE_HELLPER:escape,
+            TREE_FACTORY:new_tree,
         }
         ns.update(self.globals)
-        builder = TreeBuilder()
-        ns[TREE_BUILDER] = builder
-        # NOTE: TreeBuilder will ignore first zero level elements
-        # if there are any
-        builder.start('root', {})
         ns.update(kwargs)
         exec code in ns
         # execute template main function
-        ns[MAIN_FUNCTION]()
-        builder.end('root')
-        #XXX: this is ugly. to not show root element we slice result
-        return self.tostring(builder.close())[6:-7]
-
-    def tostring(self, node):
-        '''xml.etree.ElementTree tostring function escapes all data,
-        but we need it our way. And of course mint is html oriented'''
-        class dummy: pass
-        data = []
-        out = dummy()
-        out.write = data.append
-        tag = node.tag
-        items = node.items()
-        selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
-        out.write(u'<' + tag)
-        if items:
-            items.sort() # lexical order
-            for k, v in items:
-                out.write(u' %s="%s"' % (k, v))
-        if tag in selfclosed:
-            out.write(u' />')
-        else:
-            out.write(u'>')
-            if node.text or len(node):
-                if node.text:
-                    # text must be escaped during tree building
-                    out.write(node.text)
-                for n in node:
-                    out.write(self.tostring(n))
-            out.write(u'</' + tag + '>')
-            if node.tail:
-                out.write(node.tail)
-        return u''.join(data)
+        return ns[MAIN_FUNCTION]()
 
 
 class Loader(object):
@@ -1394,6 +1419,11 @@ class Printer(ast.NodeVisitor):
             self.visit(n)
         self._indent -= 1
 
+    def visit_Return(self, node):
+        self.make_tab()
+        self.src.write('return ')
+        self.visit(node.value)
+
     def visit_Name(self, node):
         self.src.write(node.id)
 
@@ -1492,7 +1522,9 @@ class Printer(ast.NodeVisitor):
 
     def visit_Assign(self, node):
         self.make_tab()
-        for target in node.targets:
+        for i, target in enumerate(node.targets):
+            if i != 0:
+                self.src.write(', ')
             self.visit(target)
         self.src.write(' = ')
         self._in_args = True
