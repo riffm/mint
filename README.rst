@@ -480,10 +480,10 @@ functions.
 
 Doctype declarations
 
-- ``utils.DT_HTML_STRICT``
-- ``utils.DT_HTML_TRANSITIONAL``
-- ``utils.DT_XHTML_STRICT``
-- ``utils.DT_XHTML_TRANSITIONAL``
+- ``utils.doctype.html_strict``
+- ``utils.doctype.html_transitional``
+- ``utils.doctype.xhtml_strict``
+- ``utils.doctype.xhtml_transitional``
 
 Class ``mint.Markup`` is ``utils.markup`` (this is replacement for hack ``{{ var|safe }}``)
 
