@@ -1293,11 +1293,11 @@ class Loader(object):
         raise TemplateNotFound(template)
 
     def __add__(self, other):
-        self.dirs = self.dirs + other.dirs
-        return self
+        dirs = self.dirs + other.dirs
+        return self.__class__(cache=self.need_caching, globals=self.globals,*dirs)
 
 
-#TODO: Implement string (unicode) interface
+#NOTE: Taken from jinja2
 class Markup(unicode):
 
     def __new__(cls, obj=u'', **kwargs):
@@ -1333,15 +1333,17 @@ class Markup(unicode):
 
 class utils(object):
 
-    DT_HTML_STRICT = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
-                            '"http://www.w3.org/TR/html4/strict.dtd">')
-    DT_HTML_TRANSITIONAL = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 '
-                      'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">')
-    DT_XHTML_STRICT = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
-                             '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">')
-    DT_XHTML_TRANSITIONAL = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 '
-    'Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">')
-    DT_HTML5 = Markup('<!DOCTYPE html>')
+    class doctype:
+        html_strict = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
+                                '"http://www.w3.org/TR/html4/strict.dtd">')
+        html_transitional = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 '
+                          'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">')
+        xhtml_strict = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
+                                 '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">')
+        xhtml_transitional = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 '
+        'Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">')
+        html5 = Markup('<!DOCTYPE html>')
+
     markup = Markup
 
     @staticmethod
@@ -1350,7 +1352,7 @@ class utils(object):
 
     @staticmethod
     def entity(char):
-        return CHARS_ENTITIES.get(char, char)
+        return Markup(CHARS_ENTITIES.get(char, char))
 
 
 class Looper:
