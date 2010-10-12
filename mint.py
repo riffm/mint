@@ -1251,7 +1251,7 @@ class Template(object):
         # execute template main function
         return ns[MAIN_FUNCTION]()
 
-    def slot(self, name):
+    def slot(self, name, **kwargs):
         code = self.compile()
         ns = {
             'utils':utils,
@@ -1260,6 +1260,7 @@ class Template(object):
             TREE_FACTORY:new_tree,
         }
         ns.update(self.globals)
+        ns.update(kwargs)
         exec code in ns
         return ns[name]
 
