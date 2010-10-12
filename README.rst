@@ -73,10 +73,10 @@ usage
 
 API is simple::
 
-    import mint
-    loader = mint.Loader('./templates', cache=True)
-    namespace = dict(a='a', b='b')
-    result = loder.get_template('index.mint').render(**namespace)
+    >>> import mint
+    >>> loader = mint.Loader('./templates', cache=True)
+    >>> namespace = dict(a='a', b='b')
+    >>> result = loder.get_template('index.mint').render(**namespace)
 
 ``mint.Loader`` accepts names of directories and then search for template files
 by name provided in ``get_template(name)`` call.
@@ -229,7 +229,8 @@ In **mint** templates expressions can be used inside text elements and inside at
 As you remember all content inserted in tag (as text) and in attribute escapes by **mint**.
 And that is good, but sometimes wee need to insert html and do not escape it.
 For this purpose mint uses special class ``mint.Markup``, which implements interface of
-``__html__`` method (this is something like convention). To insert html inside templates you need to mark you python variables with ``mint.Markup`` inside your python code.
+``__html__`` method (this is something like convention). To insert html inside templates you 
+need to mark your python variables with ``mint.Markup`` inside your python code.
 
 In previous example if ``doc.body`` has html we need attribute ``body`` to return 
 ``mint.Markup(html_string)``. And that ``html_string`` will be inserted in template
@@ -386,9 +387,9 @@ inheritance
 -----------
 
 **mint** uses slots to implement template inheritance. Slot is nothing more but
-python function. Slot can be defined and called anywhere in template::
+python function that retuns markup. Slot can be defined and called anywhere in template::
 
-    -- layout.mint
+    // layout.mint
     @html
         @head
             @title {{ title }}
@@ -408,7 +409,7 @@ During call of slot it's content will be inserted in template. And if we need to
 different content in that place we should inherit ``layout.mint`` and override ``content``
 slot implementation::
 
-    -- news.mint
+    // news.mint
     #base: layout.mint
 
     #def content():
@@ -423,12 +424,12 @@ in other templates engines.
 
 For example we need a block inside ``for`` loop::
 
-    -- layout.mint
+    // layout.mint
     @div.id(content)
         #for item in items:
             #loop_slot()
 
-    -- photos.mint
+    // photos.mint
     #base: layout.mint
 
     #def loop_slot():
@@ -438,17 +439,34 @@ For example we need a block inside ``for`` loop::
 For **mint** it is natural behavior. And ``item`` is just global variable for 
 slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly::
 
-    -- layout.mint
+    // layout.mint
     @div.id(content)
         #for item in items:
             #loop_slot(item)
 
-    -- photos.mint
+    // photos.mint
     #base: layout.mint
 
     #def loop_slot(item):
         @p.class(title) {{ item.title }}
         @img.alt().src({{ item.image.path }})
+
+Slots are plain python functions, slots returns ``Markup`` objects so we can pass slots
+or result of slot call to other slots.
+
+And more. We can use slots outside of templates. Lets take 
+photos.mint from previouse example::
+
+    >>> import mint
+    >>> t = mint.Loader('.').get_template('photos.mint')
+    >>> loop_slot = t.slot('loop_slot')
+    >>> # lets take image somewhere
+    >>> item = images.get(1)
+    >>> loop_slot(item)
+    Markup(u'<p class="title">...</p><img alt="" src="..." />')
+
+But sometimes slots needs global variables, you must provide such variables 
+with kwargs in method ``slot(name, **globals)`` of ``Template`` object.
 
 
 .. _utils:
