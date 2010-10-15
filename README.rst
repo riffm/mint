@@ -451,11 +451,34 @@ slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly
         @p.class(title) {{ item.title }}
         @img.alt().src({{ item.image.path }})
 
+Also we can call base slot inside overrided slot. In our case base slot will
+point to slot with same name in our base template. Base slot name is the name of
+current slot prefixed with underscore ``_``. Base slot is visible only inside
+overrided slot and only if there is base slot::
+
+    // base.mint
+    -- somewhere in head tag
+    #def js():
+        @script.type(text/javascript).src(/js/main.js)
+    #js()
+
+
+    // photos.mint
+    #def js():
+        #_js()
+        @script.type(text/javascript).src(/js/photos.js)
+
+This example will results in::
+
+    <!-- somewhere in head tag -->
+    <script type="text/javascript" scr="/js/main.js"></script>
+    <script type="text/javascript" scr="/js/photos.js"></script>
+
 Slots are plain python functions, slots returns ``Markup`` objects so we can pass slots
 or result of slot call to other slots.
 
 And more. We can use slots outside of templates. Lets take 
-photos.mint from previouse example::
+photos.mint from example with ``for`` loop::
 
     >>> import mint
     >>> t = mint.Loader('.').get_template('photos.mint')
