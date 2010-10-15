@@ -464,6 +464,7 @@ overrided slot and only if there is base slot::
 
 
     // photos.mint
+    #base: base.mint
     #def js():
         #_js()
         @script.type(text/javascript).src(/js/photos.js)
