@@ -153,6 +153,7 @@ def base_tokenizer(fp):
 
         # now we tokinize line by line
         line = map.readline().decode('utf-8')
+        line = line.replace('\r\n', '')
         line = line.replace('\n', '')
         # ignoring non XML comments
         if re_comment.match(line):
