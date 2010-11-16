@@ -1111,12 +1111,13 @@ def _correct_inheritance(new_slots, old_slots):
     slots = {}
     for k, value in new_slots.items():
         if k in old_slots:
-            name = '_' + (k[:-11] if k.endswith('__overrided') else k)
+            name = '__base__'
             old_value = old_slots[k]
             ast_ = AstWrapper(old_value.lineno + 1, old_value.col_offset)
             value.body.insert(0, ast_.Assign(targets=[ast_.Name(id=name, ctx=Store())],
                                              value=ast_.Name(id=old_value.name)))
             del old_slots[k]
+            # this slot is overrided in child template
             old_slots[k+'__overrided'] = old_value
         slots[k] = value
     slots.update(old_slots)

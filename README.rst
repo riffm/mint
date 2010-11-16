@@ -452,9 +452,8 @@ slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly
         @img.alt().src({{ item.image.path }})
 
 Also we can call base slot inside overrided slot. In our case base slot will
-point to slot with same name in our base template. Base slot name is the name of
-current slot prefixed with underscore ``_``. Base slot is visible only inside
-overrided slot and only if there is base slot::
+point to slot with same name in our base template. ``__base__`` variable points inside current slot scope 
+to implementation of current slot in parent template::
 
     // base.mint
     -- somewhere in head tag
@@ -466,7 +465,7 @@ overrided slot and only if there is base slot::
     // photos.mint
     #base: base.mint
     #def js():
-        #_js()
+        #__base__()
         @script.type(text/javascript).src(/js/photos.js)
 
 This example will results in::
