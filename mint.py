@@ -12,7 +12,7 @@ import re
 import ast
 import htmlentitydefs
 import itertools
-from os import path
+from os import path, urandom
 from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
@@ -153,6 +153,7 @@ def base_tokenizer(fp):
 
         # now we tokinize line by line
         line = map.readline().decode('utf-8')
+        line = line.replace('\r\n', '')
         line = line.replace('\n', '')
         # ignoring non XML comments
         if re_comment.match(line):
@@ -1101,8 +1102,27 @@ class SlotsGetter(ast.NodeTransformer):
                 node.body.remove(n)
             return node
         self.slots[node.name] = node
+        node.name = 'slot_' + urandom(5).encode('hex')
     def visit_BaseTemplate(self, node):
         self.base = node.name
+
+
+def _correct_inheritance(new_slots, old_slots):
+    slots = {}
+    for k, value in new_slots.items():
+        if k in old_slots:
+            name = '__base__'
+            old_value = old_slots[k]
+            ast_ = AstWrapper(old_value.lineno + 1, old_value.col_offset)
+            value.body.insert(0, ast_.Assign(targets=[ast_.Name(id=name, ctx=Store())],
+                                             value=ast_.Name(id=old_value.name)))
+            del old_slots[k]
+            # this slot is overrided in child template
+            old_slots[k+'__overrided'] = old_value
+        slots[k] = value
+    slots.update(old_slots)
+    return slots
+
 
 
 class MintParser(object):
@@ -1132,7 +1152,7 @@ class MintParser(object):
                     ctx.append(i)
             else:
                 ctx.append(result)
-        slots_getter =  SlotsGetter()
+        slots_getter = SlotsGetter()
         slots_getter.visit(module.body[0])
         return module, slots_getter.slots, slots_getter.base
 
@@ -1215,17 +1235,20 @@ class Template(object):
         tree, _slots, base_template_name = parser.parse(tokenizer(source))
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
-        for k, v in _slots.iteritems():
-            if k in slots:
-                del _slots[k]
-                v.name = '_'+k
-                _slots[v.name] = v
-        slots.update(_slots)
+        slots = _correct_inheritance(slots, _slots)
         if base_template_name:
             base_template = self._loader.get_template(base_template_name)
             tree = base_template.tree(slots=slots)
         elif slots is not None:
-            for v in slots.values():
+            # insert implementation of slots
+            # def slot_bb13e100d5(): ...
+            # and insert assings of slots
+            # real_slot_name = slot_bb13e100d5
+            for k,v in slots.items():
+                if not k.endswith('__overrided'):
+                    ast_ = AstWrapper(v.lineno, v.col_offset)
+                    tree.body.insert(0, ast_.Assign(targets=[ast_.Name(id=k, ctx=Store())],
+                                                     value=ast_.Name(id=v.name)))
                 tree.body.insert(0, v)
         # tree already has slots definitions and ready to be compiled
         return tree
