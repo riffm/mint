@@ -1231,7 +1231,7 @@ class Template(object):
     def tree(self, slots=None):
         slots = slots or {}
         parser = MintParser(indent=4)
-        source = self.source if self.source else open(self.filename, 'r')
+        source = StringIO(self.source) if self.source else open(self.filename, 'r')
         tree, _slots, base_template_name = parser.parse(tokenizer(source))
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
@@ -1294,8 +1294,8 @@ class Loader(object):
         cache = kwargs.get('cache', False)
         self.dirs = []
         # dirs - list of directories. Order matters
-        for dir in dirs:
-            self.dirs.append(path.abspath(dir))
+        for d in dirs:
+            self.dirs.append(path.abspath(d))
         self.need_caching = cache
         # caching of template code implemented in template,
         # so we caching template initialized templates and
