@@ -12,7 +12,7 @@ import re
 import ast
 import htmlentitydefs
 import itertools
-from os import path, urandom
+import os
 from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
@@ -136,23 +136,27 @@ re_comment = re.compile(r'\s*//')
 def base_tokenizer(fp):
     'Tokenizer. Generates tokens stream from text'
     if isinstance(fp, StringIO):
-        map = fp
-        size = map.len
+        template_file = fp
+        size = template_file.len
     else:
-        map = mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ)
-        size = map.size()
+        #empty file check
+        if os.fstat(fp.fileno()).st_size == 0:
+            yield TOKEN_EOF, 'EOF', 0, 0
+            return
+        template_file = mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ)
+        size = template_file.size()
     lineno = 0
     while 1:
         lineno += 1
         pos = 1
 
         # end of file
-        if map.tell() == size:
+        if template_file.tell() == size:
             yield TOKEN_EOF, 'EOF', lineno, 0
             break
 
         # now we tokinize line by line
-        line = map.readline().decode('utf-8')
+        line = template_file.readline().decode('utf-8')
         line = line.replace('\r\n', '')
         line = line.replace('\n', '')
         # ignoring non XML comments
@@ -186,7 +190,7 @@ def base_tokenizer(fp):
         yield TOKEN_NEWLINE, '\n', lineno, pos
 
     # all work is done
-    map.close()
+    template_file.close()
 
 
 def indent_tokenizer(tokens_stream, indent=4):
@@ -1099,7 +1103,7 @@ class SlotsGetter(ast.NodeTransformer):
                 node.body.remove(n)
             return node
         self.slots[node.name] = node
-        node.name = 'slot_' + urandom(5).encode('hex')
+        node.name = 'slot_' + os.urandom(5).encode('hex')
     def visit_BaseTemplate(self, node):
         self.base = node.name
 
@@ -1290,7 +1294,7 @@ class Loader(object):
         self.dirs = []
         # dirs - list of directories. Order matters
         for d in dirs:
-            self.dirs.append(path.abspath(d))
+            self.dirs.append(os.path.abspath(d))
         self.need_caching = cache
         # caching of template code implemented in template,
         # so we caching template initialized templates and
@@ -1302,8 +1306,8 @@ class Loader(object):
         if template in self._templates_cache:
             return self._templates_cache[template]
         for dir in self.dirs:
-            location = path.join(dir, template)
-            if path.exists(location) and path.isfile(location):
+            location = os.path.join(dir, template)
+            if os.path.exists(location) and os.path.isfile(location):
                 tmpl = Template(location, cache=self.need_caching,
                                 loader=self, globals=self.globals)
                 self._templates_cache[template] = tmpl
