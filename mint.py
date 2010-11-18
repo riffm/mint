@@ -267,17 +267,17 @@ UNSAFE_CHARS_ENTITIES_REVERSED = [(v,k) for k,v in UNSAFE_CHARS_ENTITIES]
 
 def escape(obj, ctx='tag'):
     if hasattr(obj, '__html__'):
+        safe_markup = obj.__html__()
         if ctx == 'tag':
-            return obj.__html__()
+            return safe_markup
         else:
-            text = obj.__html__()
             for k, v in UNSAFE_CHARS_ENTITIES_IN_ATTR:
-                text = text.replace(k, v)
-            return text
-    text = unicode(obj)
+                safe_markup = safe_markup.replace(k, v)
+            return safe_markup
+    obj = unicode(obj)
     for k, v in UNSAFE_CHARS_ENTITIES:
-        text = text.replace(k, v)
-    return text
+        obj = obj.replace(k, v)
+    return obj
 
 
 def unescape(obj):
@@ -323,7 +323,6 @@ MAIN_FUNCTION = '__MINT_MAIN__'
 TAG_START = '__MINT_TAG_START__'
 TAG_END = '__MINT_TAG_END__'
 DATA = '__MINT_DATA__'
-UNICODE = '__MINT__UNICODE__'
 ESCAPE_HELLPER = '__MINT_ESCAPE__'
 CURRENT_NODE = '__MINT_CURRENT_NODE__'
 
@@ -376,9 +375,7 @@ class PythonExpressionNode(Node):
         ast_ = self.ast_
         expr = ast.parse(self.text).body[0].value
         return ast_.Call(func=ast_.Name(id=ESCAPE_HELLPER),
-                         args=[ast_.Call(func=ast_.Name(id=UNICODE),
-                                        args=[expr],
-                                        keywords=[], starargs=None, kwargs=None)],
+                         args=[expr],
                          keywords=[ast.keyword(arg='ctx', value=ast_.Str(s=ctx))], 
                          starargs=None, kwargs=None)
 
@@ -1264,7 +1261,6 @@ class Template(object):
         code = self.compile()
         ns = {
             'utils':utils,
-            UNICODE:unicode,
             ESCAPE_HELLPER:escape,
             TREE_FACTORY:new_tree,
         }
@@ -1278,7 +1274,6 @@ class Template(object):
         code = self.compile()
         ns = {
             'utils':utils,
-            UNICODE:unicode,
             ESCAPE_HELLPER:escape,
             TREE_FACTORY:new_tree,
         }
@@ -1347,8 +1342,21 @@ class Markup(unicode):
         return NotImplemented
     __rmul__ = __mul__
 
-    def __unicode__(self):
-        return self
+    def join(self, seq):
+        return self.__class__(unicode.join(self, itertools.imap(escape, seq)))
+    join.__doc__ = unicode.join.__doc__
+
+    def split(self, *args, **kwargs):
+        return map(self.__class__, unicode.split(self, *args, **kwargs))
+    split.__doc__ = unicode.split.__doc__
+
+    def rsplit(self, *args, **kwargs):
+        return map(self.__class__, unicode.rsplit(self, *args, **kwargs))
+    rsplit.__doc__ = unicode.rsplit.__doc__
+
+    def splitlines(self, *args, **kwargs):
+        return map(self.__class__, unicode.splitlines(self, *args, **kwargs))
+    splitlines.__doc__ = unicode.splitlines.__doc__
 
     def __repr__(self):
         return 'Markup(%s)' % super(Markup, self).__repr__()
