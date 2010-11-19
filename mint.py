@@ -301,8 +301,6 @@ class AstWrapper(object):
         self.col_offset = col_offset
     def __getattr__(self, name):
         attr = getattr(ast, name)
-        if not attr:
-            raise AttributeError(name)
         return partial(attr, lineno=self.lineno, col_offset=self.col_offset, ctx=Load())
 
 
