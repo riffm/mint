@@ -1218,15 +1218,11 @@ def new_tree():
 
 class Template(object):
 
-    def __init__(self, filename=None, source=None, cache=False, loader=None, globals=None):
-        assert filename or source, 'Please provide filename or sourcecode'
-        self.filename = filename if filename else '<string>'
+    def __init__(self, source, filename=None, loader=None, globals=None):
         self.source = source
-        self.need_caching = cache
-        # cached compiled code
-        self.compiled_code = None
-        #self._loader = weakref.proxy(loader) if loader else None
+        self.filename = filename if filename else '<string>'
         self._loader = loader
+        self.compiled_code = compile(self.tree(), self.filename, 'exec')
         self.globals = globals or {}
 
     def tree(self, slots=None):
@@ -1254,15 +1250,7 @@ class Template(object):
         # tree already has slots definitions and ready to be compiled
         return tree
 
-    def compile(self):
-        if self.need_caching:
-            if not self.compiled_code:
-                self.compiled_code = compile(self.tree(), self.filename, 'exec')
-            return self.compiled_code
-        return compile(self.tree(), self.filename, 'exec')
-
     def render(self, **kwargs):
-        code = self.compile()
         ns = {
             'utils':utils,
             ESCAPE_HELLPER:escape,
@@ -1270,12 +1258,11 @@ class Template(object):
         }
         ns.update(self.globals)
         ns.update(kwargs)
-        exec code in ns
+        exec self.compiled_code in ns
         # execute template main function
         return ns[MAIN_FUNCTION]()
 
     def slot(self, name, **kwargs):
-        code = self.compile()
         ns = {
             'utils':utils,
             ESCAPE_HELLPER:escape,
@@ -1283,22 +1270,18 @@ class Template(object):
         }
         ns.update(self.globals)
         ns.update(kwargs)
-        exec code in ns
+        exec self.compiled_code in ns
         return ns[name]
 
 
 class Loader(object):
 
     def __init__(self, *dirs, **kwargs):
-        cache = kwargs.get('cache', False)
         self.dirs = []
         # dirs - list of directories. Order matters
         for d in dirs:
             self.dirs.append(os.path.abspath(d))
-        self.need_caching = cache
-        # caching of template code implemented in template,
-        # so we caching template initialized templates and
-        # do not worry about caching of compiled code
+        self.cache = kwargs.get('cache', False)
         self._templates_cache = {}
         self.globals = kwargs.get('globals', {})
 
@@ -1308,15 +1291,17 @@ class Loader(object):
         for dir in self.dirs:
             location = os.path.join(dir, template)
             if os.path.exists(location) and os.path.isfile(location):
-                tmpl = Template(location, cache=self.need_caching,
-                                loader=self, globals=self.globals)
-                self._templates_cache[template] = tmpl
-                return tmpl
+                with open(location, 'r') as f:
+                    tmpl = Template(source=f.read(), filename=f.name,
+                                    loader=self, globals=self.globals)
+                    if self.cache:
+                        self._templates_cache[template] = tmpl
+                    return tmpl
         raise TemplateNotFound(template)
 
     def __add__(self, other):
         dirs = self.dirs + other.dirs
-        return self.__class__(cache=self.need_caching, globals=self.globals,*dirs)
+        return self.__class__(cache=self.cache, globals=self.globals,*dirs)
 
 
 #NOTE: Taken from jinja2
