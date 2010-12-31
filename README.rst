@@ -185,9 +185,9 @@ on some condition.
 escaping
 --------
 
-As you know there are some chars we need to escape in xml.
-And **mint** do this automaticly for you. It escapes all text inside tags and attributes.
-Autoescaping can not be switched off::
+As you know there are some chars we need to escape in xml.  And **mint** does this
+automatically for you. It escapes all text inside tags and attributes.
+Autoescaping can't be turned off::
 
     @a.href(/docs?type=1&published=true) docs
     @p.class( ' " < > & )
@@ -226,15 +226,16 @@ In **mint** templates expressions can be used inside text elements and inside at
 
     @p.class(title {{ doc.main_doc_class }}).id({{ doc.id }}) {{ doc.body }}
 
-As you remember all content inserted in tag (as text) and in attribute escapes by **mint**.
-And that is good, but sometimes wee need to insert html and do not escape it.
-For this purpose mint uses special class ``mint.Markup``, which implements interface of
-``__html__`` method (this is something like convention). To insert html inside templates you 
-need to mark your python variables with ``mint.Markup`` inside your python code.
+As you remember all content inserted in tags (as text) and in attributes is
+escaped by **mint**.  And this is good, but sometimes you need to insert
+unescaped html.  For this purpose mint uses special class ``mint.Markup``, which
+implements ``__html__`` method (this is something like convention). To insert
+html inside templates you need to mark your python variables with
+``mint.Markup`` inside your python code.
 
 In previous example if ``doc.body`` has html we need attribute ``body`` to return 
 ``mint.Markup(html_string)``. And that ``html_string`` will be inserted in template
-with out escaping. That is the prefered way to insert markup inside html template.
+without escaping. That is the preferred way to insert markup inside html template.
 
 Also note that there are two contexts to insert markup - tag and attribute.
 In case of tag ``mint.Markup`` instances will be inserted without modifications.
@@ -286,7 +287,7 @@ is similar to::
     @li
         @img.src({{ img.file }})
 
-It is inline tags record.
+This is inline tags notation.
 
 .. _conditions:
 
@@ -340,7 +341,7 @@ Will provide::
 simplification
 --------------
 
-Simplification of syntax provide ambiguity. But it is very handy sometimes.
+Simplification of syntax provides ambiguity. But it is very handy sometimes.
 In **mint** templates you can write such things::
 
     @ul
@@ -436,8 +437,9 @@ For example we need a block inside ``for`` loop::
         @p.class(title) {{ item.title }}
         @img.alt().src({{ item.image.path }})
 
-For **mint** it is natural behavior. And ``item`` is just global variable for 
-slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly::
+For **mint** this is natural behavior. And ``item`` is just global variable for
+slot ``loop_slot``. But in this case it's better to provide ``item`` to slot
+explicitly::
 
     // layout.mint
     @div.id(content)
@@ -452,8 +454,8 @@ slot ``loop_slot``. But in this case better to provide ``item`` to slot obviosly
         @img.alt().src({{ item.image.path }})
 
 Also we can call base slot inside overrided slot. In our case base slot will
-point to slot with same name in our base template. ``__base__`` variable points inside current slot scope 
-to implementation of current slot in parent template::
+point to slot with same name in our base template. ``__base__`` variable points
+inside current slot scope to implementation of current slot in parent template::
 
     // base.mint
     -- somewhere in head tag
@@ -477,8 +479,8 @@ This example will results in::
 Slots are plain python functions, slots returns ``Markup`` objects so we can pass slots
 or result of slot call to other slots.
 
-And more. We can use slots outside of templates. Lets take 
-photos.mint from example with ``for`` loop::
+And more. We can use slots outside of templates. Lets take photos.mint from
+example with ``for`` loop::
 
     >>> import mint
     >>> t = mint.Loader('.').get_template('photos.mint')
@@ -508,6 +510,11 @@ Doctype declarations
 - ``utils.doctype.xhtml_strict``
 - ``utils.doctype.xhtml_transitional``
 
+Example of usage::
+
+    {{ utils.doctype.html_strict }}
+    @html
+
 Class ``mint.Markup`` is ``utils.markup`` (this is replacement for hack ``{{ var|safe }}``)
 
 ``utils.loop`` is helper function to use with ``for`` statement. It takes iterable 
@@ -516,7 +523,7 @@ iteration::
 
     #for item, l in utils.loop(items):
         @a.href({{ item.url }})
-            {{ item. title }} {{ (l.first, l.last, l.odd) }} {{ l.cycle('one', 'two', 'three') }}
+            {{ item.title }} {{ (l.first, l.last, l.odd) }} {{ l.cycle('one', 'two', 'three') }}
 
 In previous example ``l.cycle('one', 'two', 'three')`` will return one of values provided
 in sequence. It is handy to colorize tables.
