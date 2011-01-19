@@ -1217,6 +1217,7 @@ def new_tree():
 class Template(object):
 
     def __init__(self, source, filename=None, loader=None, globals=None):
+        assert source or filename, 'Please provide source code or filename'
         self.source = source
         self.filename = filename if filename else '<string>'
         self._loader = loader
