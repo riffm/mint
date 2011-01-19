@@ -201,7 +201,6 @@ class PythonPart(unittest.TestCase):
         self.assertEqual(mint.Template('#for v in values:\n'
                                        '    {{ v }}').render(values=[1,2,3]), '1\n2\n3\n')
 
-                                       '    {{ v }}').render(values=[1,2,3]), '1\n2\n3\n')
 
 
 if __name__ == '__main__':
