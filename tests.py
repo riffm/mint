@@ -108,6 +108,101 @@ class TagsAndText(unittest.TestCase):
                                        '    text content').render(),
                                        '<tag ns:attr-name="value">text content\n</tag>')
 
+    def test_attr_assignment(self):
+        'New attribute assignment'
+        self.assertEqual(mint.Template('@tag\n'
+                                       '    @.attr(value)').render(),
+                                       '<tag attr="value"></tag>')
+
+    def test_attr_assignment2(self):
+        'New attribute assignment with default attribute value'
+        self.assertEqual(mint.Template('@tag.attr(text)\n'
+                                       '    @.attr(new value)').render(),
+                                       '<tag attr="new value"></tag>')
+
+    def test_attr_setting(self):
+        'Attribute setter'
+        self.assertEqual(mint.Template('@tag\n'
+                                       '    @+attr(value)').render(),
+                                       '<tag attr="value"></tag>')
+
+    def test_attr_setting2(self):
+        'Attribute setter with default attribute value'
+        self.assertEqual(mint.Template('@tag.attr(value)\n'
+                                       '    @+attr( value1)').render(),
+                                       '<tag attr="value value1"></tag>')
+
+
+class PythonPart(unittest.TestCase):
+
+    def test_expression(self):
+        'Python expression'
+        self.assertEqual(mint.Template('{{ "Hello, mint!" }}').render(), 'Hello, mint!\n')
+
+    def test_expression1(self):
+        'Wrong Python expression'
+        self.assertRaises(SyntaxError, lambda: mint.Template('{{ "Hello, mint! }}').render())
+
+    def test_expressoin_and_text(self):
+        'Python expression and text after'
+        self.assertEqual(mint.Template('{{ "Hello," }} mint!').render(), 'Hello, mint!\n')
+
+    def test_expressoin_and_text2(self):
+        'Python expression and text before'
+        self.assertEqual(mint.Template('Hello, {{ "mint!" }}').render(), 'Hello, mint!\n')
+
+    def test_expressoin_and_text3(self):
+        'Python expression and text at new line'
+        self.assertEqual(mint.Template('{{ "Hello," }}\n'
+                                       'mint!').render(), 'Hello,\nmint!\n')
+
+    def test_if(self):
+        'if statement (true)'
+        self.assertEqual(mint.Template('#if True:\n'
+                                       '    true').render(), 'true\n')
+
+    def test_if1(self):
+        'if statement (false)'
+        self.assertEqual(mint.Template('#if False:\n'
+                                       '    true\n'
+                                       'false').render(), 'false\n')
+
+    def test_if2(self):
+        'if-else statements'
+        self.assertEqual(mint.Template('#if False:\n'
+                                       '    true\n'
+                                       '#else:\n'
+                                       '    false').render(), 'false\n')
+
+    def test_if3(self):
+        'if-elif-else statements'
+        self.assertEqual(mint.Template('#if False:\n'
+                                       '    if\n'
+                                       '#elif True:\n'
+                                       '    elif\n'
+                                       '#else:\n'
+                                       '    else').render(), 'elif\n')
+
+    def test_if4(self):
+        'if-elif-else statements and nested statements'
+        self.assertEqual(mint.Template('#if False:\n'
+                                       '    if\n'
+                                       '#elif True:\n'
+                                       '    elif\n'
+                                       '    #if False:\n'
+                                       '        nested if\n'
+                                       '    #else:\n'
+                                       '        nested else\n'
+                                       '#else:\n'
+                                       '    else').render(), 'elif\nnested else\n')
+
+    def test_for(self):
+        'for statement'
+        self.assertEqual(mint.Template('#for v in values:\n'
+                                       '    {{ v }}').render(values=[1,2,3]), '1\n2\n3\n')
+
+                                       '    {{ v }}').render(values=[1,2,3]), '1\n2\n3\n')
+
 
 if __name__ == '__main__':
     unittest.main()
