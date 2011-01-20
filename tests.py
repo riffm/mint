@@ -149,6 +149,10 @@ class TagsAndText(unittest.TestCase):
         'html comments with trail whitespaces'
         self.assertEqual(mint.Template('--  comment message  ').render(), '<!-- comment message -->')
 
+    def test_backspace_escaping(self):
+        'Backsapce escaping'
+        self.assertEqual(mint.Template('\@tag.attr(value)').render(), '@tag.attr(value)\n')
+
     def test_escaping(self):
         'Text value escaping'
         self.assertEqual(mint.Template('text < > \' " &').render(), 
