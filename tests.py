@@ -4,6 +4,7 @@ import os
 import glob
 import unittest
 import mint
+import types
 
 
 class TagsAndText(unittest.TestCase):
@@ -15,6 +16,10 @@ class TagsAndText(unittest.TestCase):
     def test_empty2(self):
         'Not so empty template'
         self.assertEqual(mint.Template('\n').render(), '')
+
+    def test_returns_markup(self):
+        'Template.render() renturns Markup'
+        self.assert_(isinstance(mint.Template('\n').render(), mint.Markup))
 
     def test_tag(self):
         'One tag'
@@ -201,6 +206,25 @@ class PythonPart(unittest.TestCase):
         self.assertEqual(mint.Template('#for v in values:\n'
                                        '    {{ v }}').render(values=[1,2,3]), '1\n2\n3\n')
 
+    def test_slotdef(self):
+        'Slot definition'
+        self.assertEqual(mint.Template('#def count():\n'
+                                       '    {{ value }}').render(value=1), '')
+
+    def test_slotcall(self):
+        'Slot call'
+        self.assertEqual(mint.Template('#def count():\n'
+                                       '    {{ value }}\n'
+                                       '#count()').render(value=1), '1\n')
+
+    def test_slotcall_from_python(self):
+        'Slot call from python code'
+        t = mint.Template('#def count(value):\n'
+                          '    {{ value }}\n'
+                          '#count()')
+        slot = t.slot('count')
+        self.assert_(isinstance(slot, types.FunctionType))
+        self.assertEqual(slot(1), '1\n')
 
 
 if __name__ == '__main__':
