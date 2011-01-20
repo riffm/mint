@@ -137,6 +137,41 @@ class TagsAndText(unittest.TestCase):
                                        '    @+attr( value1)').render(),
                                        '<tag attr="value value1"></tag>')
 
+    def test_mint_comment(self):
+        'mint comments'
+        self.assertEqual(mint.Template('// comment message').render(), '')
+
+    def test_html_comment(self):
+        'html comments'
+        self.assertEqual(mint.Template('-- comment message').render(), '<!-- comment message -->')
+
+    def test_html_comment2(self):
+        'html comments with trail whitespaces'
+        self.assertEqual(mint.Template('--  comment message  ').render(), '<!-- comment message -->')
+
+    def test_escaping(self):
+        'Text value escaping'
+        self.assertEqual(mint.Template('text < > \' " &').render(), 
+                         'text &lt; &gt; &#39; &quot; &amp;\n')
+
+    def test_escaping2(self):
+        'Tag attr value escaping'
+        self.assertEqual(mint.Template('@tag.attr(text < > \' " &)').render(), 
+                         '<tag attr="text &lt; &gt; &#39; &quot; &amp;"></tag>')
+
+    def test_escaping3(self):
+        'Markup object value'
+        self.assertEqual(mint.Template('@tag\n'
+                                       '    text <tag attr="&" />\n'
+                                       '    {{ value }}').render(value=mint.Markup('<tag attr="&amp;" />')), 
+                         '<tag>text &lt;tag attr=&quot;&amp;&quot; /&gt;\n<tag attr="&amp;" />\n</tag>')
+
+    def test_escaping4(self):
+        'Markup object value in tag attr'
+        self.assertEqual(mint.Template('@tag.attr({{ value }})').render(
+                                value=mint.Markup('<tag attr="&amp;" />')),
+                         '<tag attr="&lt;tag attr=&quot;&amp;&quot; /&gt;"></tag>')
+
 
 class DummyLoader(object):
     def __init__(self, templates):

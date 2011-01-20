@@ -906,7 +906,7 @@ def base_template(t, s):
 def html_comment(t, s):
     my_tokens = get_tokens(s)
     lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
-    s.push(TextNode(Markup(u'<!-- %s -->' % u''.join([t[1] for t in my_tokens])), 
+    s.push(TextNode(Markup(u'<!-- %s -->' % (u''.join([t[1] for t in my_tokens])).strip()), 
                        lineno=lineno, col_offset=col_offset))
 
 def for_stmt(t, s):
