@@ -47,6 +47,13 @@ class TagsAndText(unittest.TestCase):
         self.assertEqual(mint.Template('@tag @tag2 @tag3').render(), 
                          '<tag><tag2><tag3></tag3></tag2></tag>')
 
+    def test_nested_tags4(self):
+        'Big question'
+        #XXX: Throw SyntaxError wrong indent level
+        self.assertEqual(mint.Template('@li @a.href(url) text\n'
+                                       '    @p other text').render(),
+                         '<li><a href="url">text\n</a><p>other text\n</p></li>')
+
     def test_text_content(self):
         'Tag with text content'
         self.assertEqual(mint.Template('@tag\n'
@@ -175,6 +182,25 @@ class TagsAndText(unittest.TestCase):
         self.assertEqual(mint.Template('@tag.attr({{ value }})').render(
                                 value=mint.Markup('<tag attr="&amp;" />')),
                          '<tag attr="&lt;tag attr=&quot;&amp;&quot; /&gt;"></tag>')
+
+    def test_spaces(self):
+        'Whitespaces'
+        self.assertEqual(mint.Template('    ').render(), '    \n')
+
+    def test_syntaxerror(self):
+        'indented tag'
+        self.assertRaises(SyntaxError, lambda: mint.Template('    \n'
+                                                             '    @tag'))
+
+    def test_syntaxerror2(self):
+        'Nestead tags with no whitespace'
+        self.assertRaises(mint.WrongToken, lambda: mint.Template('@tag@tag'))
+
+    def test_syntaxerror3(self):
+        'Nestead tag with text'
+        self.assertEqual(mint.Template('@tag text @tag').render(), '<tag>text @tag\n</tag>')
+
+
 
 
 class DummyLoader(object):
@@ -372,7 +398,6 @@ class PythonPart(unittest.TestCase):
                                        '    {{ __base__() }}\n'
                                        '    overrided slot\n', loader=loader).render(),
                         'base slot\n\nbase2 slot\n\noverrided slot\n')
-
 
 
 if __name__ == '__main__':
