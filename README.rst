@@ -399,7 +399,7 @@ python function that retuns markup. Slot can be defined and called anywhere in t
 
                 #def content():
                     @p.class(title) {{ title }}
-                    {{ content }}
+                    {{ text }}
 
                 #content()
 
