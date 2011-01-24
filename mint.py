@@ -193,7 +193,7 @@ def base_tokenizer(fp):
     template_file.close()
 
 
-def indent_tokenizer(tokens_stream, indent=4):
+def indent_tokenizer(tokens_stream, indent=None):
     current_indent = 0
     for tok in tokens_stream:
         token, value, lineno, pos = tok
@@ -212,11 +212,14 @@ def indent_tokenizer(tokens_stream, indent=4):
             tok = next_tok
             token, value, lineno, pos = next_tok
         # indenting and unindenting
-        if token is TOKEN_NEWLINE:
-            yield tok
-            next_tok = tokens_stream.next()
-            while next_tok[0] is TOKEN_NEWLINE:
+        if token is TOKEN_NEWLINE or (token is TOKEN_WHITESPACE and (lineno, pos) == (1, 1)):
+            if token is TOKEN_NEWLINE:
+                yield tok
                 next_tok = tokens_stream.next()
+                while next_tok[0] is TOKEN_NEWLINE:
+                    next_tok = tokens_stream.next()
+            else:
+                next_tok = tok
             next_token, next_value, next_lineno, next_pos = next_tok
             if next_token is TOKEN_WHITESPACE:
                 ws_count = len(next_value)
@@ -227,7 +230,7 @@ def indent_tokenizer(tokens_stream, indent=4):
                     if range_ > 0:
                         # indenting
                         for i in range(range_):
-                            yield TOKEN_INDENT, ' '*indent, next_lineno, next_pos
+                            yield TOKEN_INDENT, ' '*indent, next_lineno, i*indent+1
                             current_indent += 1
                     elif range_ < 0:
                         # unindenting
@@ -235,7 +238,7 @@ def indent_tokenizer(tokens_stream, indent=4):
                             yield TOKEN_UNINDENT, ' '*indent, next_lineno, next_pos
                             current_indent -= 1
                     if rest:
-                        yield TOKEN_WHITESPACE, ' '*rest, lineno, pos
+                        yield TOKEN_WHITESPACE, ' '*rest, next_lineno, times*indent+1
                     continue
             # next token is the whitespace lighter than indent or any other
             # token, so unindenting to zero level
@@ -248,9 +251,9 @@ def indent_tokenizer(tokens_stream, indent=4):
         yield tok
 
 
-def tokenizer(fileobj):
+def tokenizer(fileobj, indent=None):
     return indent_tokenizer(
-            base_tokenizer(fileobj))
+            base_tokenizer(fileobj), indent=indent or 4)
 
 
 
@@ -331,12 +334,12 @@ CURRENT_NODE = '__MINT_CURRENT_NODE__'
 
 ##### NODES
 
-class Node(object):
+class Node(ast.AST):
     def __repr__(self):
         return '%s' % self.__class__.__name__
 
 
-class BaseTemplate(ast.AST):
+class BaseTemplate(Node):
     def __init__(self, name):
         self.name = name
 
@@ -1216,11 +1219,12 @@ def new_tree():
 
 class Template(object):
 
-    def __init__(self, source, filename=None, loader=None, globals=None):
+    def __init__(self, source, filename=None, loader=None, globals=None, indent=4):
         assert source or filename, 'Please provide source code or filename'
         self.source = source
         self.filename = filename if filename else '<string>'
         self._loader = loader
+        self.indent = indent
         self.compiled_code = compile(self.tree(), self.filename, 'exec')
         self.globals = globals or {}
 
@@ -1228,7 +1232,7 @@ class Template(object):
         slots = slots or {}
         parser = MintParser(indent=4)
         source = StringIO(self.source) if self.source else open(self.filename, 'r')
-        tree, _slots, base_template_name = parser.parse(tokenizer(source))
+        tree, _slots, base_template_name = parser.parse(tokenizer(source, indent=self.indent))
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
         slots = _correct_inheritance(slots, _slots)
