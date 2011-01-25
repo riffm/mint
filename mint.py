@@ -310,14 +310,6 @@ class AstWrapper(object):
 
 
 ############# PARSER
-#TODO
-# + Escaping
-# + "IF-ELIF-ELSE" statement
-# - "IF-ELIF-ELSE" templates error handling
-# + "FOR" statement
-# + blocks (inheritance)
-# - python variables (i.e. #a = 'hello')
-# + '\' escaping of '@' '#'
 
 class TemplateError(Exception): pass
 class WrongToken(Exception): pass
@@ -338,6 +330,17 @@ CURRENT_NODE = '__MINT_CURRENT_NODE__'
 class Node(ast.AST):
     def __repr__(self):
         return '%s' % self.__class__.__name__
+
+
+class MintTemplate(Node):
+    def __init__(self, body=None):
+        self.body = body or []
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return self.body == other.body
+        return False
+
 
 
 class BaseTemplate(Node):
@@ -734,9 +737,8 @@ class RecursiveStack(object):
 
 
 class Parser(object):
-    def __init__(self, states, value_processor=None):
+    def __init__(self, states):
         self.states = dict(states)
-        self.value_processor = value_processor
 
     def parse(self, tokens_stream, stack):
         current_state = 'start'
@@ -779,8 +781,7 @@ class Parser(object):
             #print current_state, '%s(%r)' % (token, tok_value), new_state
             callback(tok, stack)
             #_print_stack(stack)
-        if self.value_processor:
-            self.value_processor(stack)
+
 
 def _print_stack(s):
     print '[stack]'
@@ -1192,37 +1193,31 @@ def _correct_inheritance(new_slots, old_slots):
     return slots
 
 
-
-class MintParser(object):
+def mint_tree(tokens_stream):
     '''
-    This class is wrapper to normal parsers (tag_parser, block_parser, etc.).
-    This wrapper returns slots and base template name (if any).
-    and returns ast module node.
+    This function is wrapper to normal parsers (tag_parser, block_parser, etc.).
+    Returns mint tree.
     '''
-    def __init__(self, indent=4):
-        self.indent = indent
-
-    def parse(self, tokens_stream):
-        ast_ = AstWrapper(1,0)
-        module = ast_.Module(body=[
-            ast_.FunctionDef(name=MAIN_FUNCTION, 
-                             body=[], 
-                             args=ast_.arguments(args=[], vararg=None, kwargs=None, defaults=[]),
-                             decorator_list=[]),
-            ])
-        smart_stack = RecursiveStack()
-        block_parser.parse(tokens_stream, smart_stack)
-        ctx = module.body[0].body
-        for item in smart_stack.stack:
-            result = item.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    ctx.append(i)
-            else:
-                ctx.append(result)
-        slots_getter = SlotsGetter()
-        slots_getter.visit(module.body[0])
-        return module, slots_getter.slots, slots_getter.base
+    ast_ = AstWrapper(1,0)
+    module = ast_.Module(body=[
+        ast_.FunctionDef(name=MAIN_FUNCTION, 
+                         body=[], 
+                         args=ast_.arguments(args=[], vararg=None, kwargs=None, defaults=[]),
+                         decorator_list=[]),
+        ])
+    smart_stack = RecursiveStack()
+    block_parser.parse(tokens_stream, smart_stack)
+    ctx = module.body[0].body
+    for item in smart_stack.stack:
+        result = item.to_ast()
+        if isinstance(result, (list, tuple)):
+            for i in result:
+                ctx.append(i)
+        else:
+            ctx.append(result)
+    slots_getter = SlotsGetter()
+    slots_getter.visit(module.body[0])
+    return module, slots_getter.slots, slots_getter.base
 
 ############# PARSER END
 
@@ -1296,9 +1291,8 @@ class Template(object):
 
     def tree(self, slots=None):
         slots = slots or {}
-        parser = MintParser(indent=4)
         source = StringIO(self.source) if self.source else open(self.filename, 'r')
-        tree, _slots, base_template_name = parser.parse(tokenizer(source, indent=self.indent))
+        tree, _slots, base_template_name = mint_tree(tokenizer(source, indent=self.indent))
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
         slots = _correct_inheritance(slots, _slots)

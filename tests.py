@@ -344,9 +344,10 @@ class Parser(unittest.TestCase):
         tree = self.get_mint_tree('@tag.attr(value)')
         self.assertEqual(tree.stack,
                          [mint.TagNode('tag', 
-                                       attrs=[mint.TagAttrNode('attr', value=[mint.TextNode('value', 
-                                                                                            lineno=1, 
-                                                                                            col_offset=1)],
+                                       attrs=[mint.TagAttrNode('attr', 
+                                                               value=[mint.TextNode('value', 
+                                                                                    lineno=1, 
+                                                                                    col_offset=1)],
                                                                 lineno=1, col_offset=1)], 
                                        lineno=1, col_offset=1)])
 
