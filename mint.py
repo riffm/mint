@@ -17,8 +17,7 @@ from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
 from xml.etree.ElementTree import TreeBuilder, Element
-
-logger = logging.getLogger(__name__)
+from functools import partial
 
 ############# LEXER
 
@@ -256,13 +255,7 @@ def tokenizer(fileobj, indent=None):
     return indent_tokenizer(
             base_tokenizer(fileobj), indent=indent or 4)
 
-
-
 ############# LEXER END
-
-############# NODES
-# Theese nodes are additional nodes, which helps to
-# optimize AST building
 
 UNSAFE_CHARS = '&<>"'
 CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
@@ -294,22 +287,6 @@ def unescape(obj):
         text = text.replace(k, v)
     return text
 
-from functools import partial
-
-
-
-class AstWrapper(object):
-    def __init__(self, lineno, col_offset):
-        assert lineno is not None and col_offset is not None
-        self.lineno = lineno
-        self.col_offset = col_offset
-    def __getattr__(self, name):
-        attr = getattr(ast, name)
-        return partial(attr, lineno=self.lineno, col_offset=self.col_offset, ctx=Load())
-
-
-
-############# PARSER
 
 class TemplateError(Exception): pass
 class WrongToken(Exception): pass
@@ -325,7 +302,7 @@ ESCAPE_HELLPER = '__MINT_ESCAPE__'
 CURRENT_NODE = '__MINT_CURRENT_NODE__'
 
 
-##### NODES
+##### MINT NODES
 
 class Node(ast.AST):
     def __repr__(self):
@@ -521,6 +498,8 @@ class SlotCallNode(Node):
 
 ##### NODES END
 
+
+##### PARSER
 
 class RecursiveStack(object):
     'Stack of stacks'
@@ -960,6 +939,17 @@ block_parser = Parser((
         )),
 ))
 
+############# PARSER END
+
+class AstWrapper(object):
+    def __init__(self, lineno, col_offset):
+        assert lineno is not None and col_offset is not None
+        self.lineno = lineno
+        self.col_offset = col_offset
+    def __getattr__(self, name):
+        attr = getattr(ast, name)
+        return partial(attr, lineno=self.lineno, col_offset=self.col_offset, ctx=Load())
+
 
 class MintToPythonTransformer(ast.NodeTransformer):
 
@@ -1160,8 +1150,6 @@ class MintToPythonTransformer(ast.NodeTransformer):
             return key, value
 
 
-
-
 class SlotsGetter(ast.NodeTransformer):
     'Node transformer, collects slots'
     def __init__(self):
@@ -1226,7 +1214,6 @@ def get_mint_tree(tokens_stream):
     block_parser.parse(tokens_stream, smart_stack)
     return MintTemplate(body=smart_stack.stack)
 
-############# PARSER END
 
 
 ############# API
