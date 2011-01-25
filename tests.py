@@ -211,7 +211,7 @@ class Tokenizer(unittest.TestCase):
 
     def test_tokens2(self):
         'Simple tokens'
-        self.assertEqual(list(mint.tokenizer(StringIO('@@.@+()[]:;.,'))), 
+        self.assertEqual(list(mint.tokenizer(StringIO('@@.@+()[]:;.,-+{{}}'))), 
                          [(mint.TOKEN_TAG_START, '@', 1, 1),
                           (mint.TOKEN_TAG_ATTR_SET, '@.', 1, 2),
                           (mint.TOKEN_TAG_ATTR_APPEND, '@+', 1, 4),
@@ -222,7 +222,34 @@ class Tokenizer(unittest.TestCase):
                           (mint.TOKEN_TEXT, ';', 1, 11),
                           (mint.TOKEN_DOT, '.', 1, 12),
                           (mint.TOKEN_TEXT, ',', 1, 13),
-                          (mint.TOKEN_NEWLINE, '\n', 1, 14),
+                          (mint.TOKEN_MINUS, '-', 1, 14),
+                          (mint.TOKEN_PLUS, '+', 1, 15),
+                          (mint.TOKEN_EXPRESSION_START, '{{', 1, 16),
+                          (mint.TOKEN_EXPRESSION_END, '}}', 1, 18),
+                          (mint.TOKEN_NEWLINE, '\n', 1, 20),
+                          (mint.TOKEN_EOF, 'EOF', 2, 0)])
+
+    def test_tokens3(self):
+        'Special tokens'
+        self.assertEqual(list(mint.tokenizer(StringIO('#base: #if #elif #else:#def #for #'))), 
+                         [(mint.TOKEN_BASE_TEMPLATE, '#base: ', 1, 1),
+                          (mint.TOKEN_STATEMENT_IF, '#if ', 1, 8),
+                          (mint.TOKEN_STATEMENT_ELIF, '#elif ', 1, 12),
+                          (mint.TOKEN_STATEMENT_ELSE, '#else:', 1, 18),
+                          (mint.TOKEN_SLOT_DEF, '#def ', 1, 24),
+                          (mint.TOKEN_STATEMENT_FOR, '#for ', 1, 29),
+                          (mint.TOKEN_STMT_CHAR, '#', 1, 34),
+                          (mint.TOKEN_NEWLINE, '\n', 1, 35),
+                          (mint.TOKEN_EOF, 'EOF', 2, 0)])
+
+    def test_tokens4(self):
+        'Two tokens in a row'
+        self.assertEqual(list(mint.tokenizer(StringIO('{{{{#if #if '))), 
+                         [(mint.TOKEN_EXPRESSION_START, '{{', 1, 1),
+                          (mint.TOKEN_EXPRESSION_START, '{{', 1, 3),
+                          (mint.TOKEN_STATEMENT_IF, '#if ', 1, 5),
+                          (mint.TOKEN_STATEMENT_IF, '#if ', 1, 9),
+                          (mint.TOKEN_NEWLINE, '\n', 1, 13),
                           (mint.TOKEN_EOF, 'EOF', 2, 0)])
 
     def test_indent(self):

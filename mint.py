@@ -177,6 +177,7 @@ def base_tokenizer(fp):
                     line = line[offset:]
                     yield token, value, lineno, pos
                     pos += offset
+                    break
 
             # we did not get right in tokens list, so next char is text
             if line_len == len(line):
