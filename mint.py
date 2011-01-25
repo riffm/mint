@@ -357,18 +357,10 @@ class BaseTemplate(Node):
 
 
 class TextNode(Node):
-    def __init__(self, text, lineno=None, col_offset=None, ctx='tag'):
+    def __init__(self, text, lineno=None, col_offset=None):
         self.text = text
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        ast_ = self.ast_
-        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
-                                         args=[self.get_value()],
-                                         keywords=[], starargs=None, kwargs=None))
-
-    def get_value(self, ctx='tag'):
-        return self.ast_.Str(s=escape(self.text, ctx=ctx))
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -382,21 +374,8 @@ class TextNode(Node):
 class PythonExpressionNode(Node):
     def __init__(self, text, lineno=None, col_offset=None):
         self.text = text.strip()
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        ast_ = self.ast_
-        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
-                                         args=[self.get_value()],
-                                         keywords=[], starargs=None, kwargs=None))
-
-    def get_value(self, ctx='tag'):
-        ast_ = self.ast_
-        expr = ast.parse(self.text).body[0].value
-        return ast_.Call(func=ast_.Name(id=ESCAPE_HELLPER),
-                         args=[expr],
-                         keywords=[ast.keyword(arg='ctx', value=ast_.Str(s=ctx))], 
-                         starargs=None, kwargs=None)
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -411,19 +390,8 @@ class TagAttrNode(Node):
     def __init__(self, name, value=None, lineno=None, col_offset=None):
         self.name = escape(name, ctx='attr')
         self.value = value or []
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def get_value(self):
-        ast_ = self.ast_
-        key = ast_.Str(s=self.name)
-        value = ast_.Str(s=u'')
-        nodes = list(self.value)
-        if nodes:
-            value = ast_.Call(func=ast_.Attribute(value=ast_.Str(s=u''),
-                                                  attr='join'),
-                              args=[ast_.Tuple(elts=[n.get_value(ctx='attr') for n in nodes])],
-                              keywords=[], starargs=None, kwargs=None)
-        return key, value
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -437,16 +405,6 @@ class TagAttrNode(Node):
 class SetAttrNode(Node):
     def __init__(self, attr_node):
         self.attr = attr_node
-        self.key, self.value = attr_node.get_value()
-        self.ast_ = attr_node.ast_
-
-    def to_ast(self):
-        ast_ = self.ast_
-        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
-                                                            attr='set'),
-                                        args=[self.key, self.value],
-                                        keywords=[],
-                                        starargs=None, kwargs=None))
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -457,27 +415,6 @@ class SetAttrNode(Node):
 class AppendAttrNode(Node):
     def __init__(self, attr_node):
         self.attr = attr_node
-        self.key, self.value = attr_node.get_value()
-        self.ast_ = attr_node.ast_
-
-    def to_ast(self):
-        ast_ = self.ast_
-        value = ast_.BinOp(
-            left=ast_.BoolOp(
-                values=[ast_.Call(
-                    func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
-                                        attr='get'),
-                    args=[self.key],
-                    keywords=[],
-                    starargs=None, kwargs=None), ast_.Str(s=u'')],
-                op=ast.Or()),
-            op=ast.Add(), 
-            right=self.value)
-        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
-                                                            attr='set'),
-                                        args=[self.key, value],
-                                        keywords=[],
-                                        starargs=None, kwargs=None))
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -490,36 +427,8 @@ class TagNode(Node):
         self.name = name
         self.attrs = attrs or []
         self.body = body or []
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        ast_ = self.ast_
-        name = CURRENT_NODE
-        attrs = ast_.Dict(keys=[], values=[])
-        for a in self.attrs:
-            k, v = a.get_value()
-            attrs.keys.append(k)
-            attrs.values.append(v)
-        nodes = []
-        # tag start
-        node_start = ast_.Assign(targets=[ast_.Name(id=name, ctx=Store())],
-                           value=ast_.Call(func=ast_.Name(id=TAG_START),
-                                           args=[ast_.Str(s=escape(self.name)), attrs],
-                                           keywords=[], starargs=None, kwargs=None))
-        nodes.append(node_start)
-        for n in self.body:
-            result = n.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    nodes.append(i)
-            else:
-                nodes.append(result)
-        # tag end
-        node_end = ast_.Expr(value=ast_.Call(func=ast_.Name(id=TAG_END),
-                                             args=[ast_.Str(s=escape(self.name))],
-                                             keywords=[], starargs=None, kwargs=None))
-        nodes.append(node_end)
-        return nodes
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -534,28 +443,8 @@ class ForStmtNode(Node):
     def __init__(self, text, body=None, lineno=None, col_offset=None):
         self.text = text.strip()
         self.body = body or []
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        ast_ = self.ast_
-        result = []
-        expr = self.text[1:]
-        if not expr.endswith(':'):
-            expr += ':'
-        expr += 'pass'
-        value = ast.parse(expr).body[0]
-        value.body = []
-        value.lineno = ast_.lineno
-        value.col_offset = ast_.col_offset
-        #XXX: if nodes is empty list raise TemplateError
-        for n in self.body:
-            result = n.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    value.body.append(i)
-            else:
-                value.body.append(result)
-        return value
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -571,37 +460,8 @@ class IfStmtNode(Node):
         self.text = text
         self.body = body or []
         self.orelse = orelse or []
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        ast_ = self.ast_
-        result = []
-        expr = self.text[1:]
-        if not expr.endswith(':'):
-            expr += ':'
-        expr += 'pass'
-        if expr.startswith('el'):
-            expr = expr[2:]
-        value = ast.parse(expr).body[0]
-        value.body = []
-        value.lineno = ast_.lineno
-        value.col_offset = ast_.col_offset
-        #XXX: if nodes is empty list raise TemplateError
-        for n in self.body:
-            result = n.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    value.body.append(i)
-            else:
-                value.body.append(result)
-        for n in self.orelse:
-            result = n.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    value.orelse.append(i)
-            else:
-                value.orelse.append(result)
-        return value
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -617,18 +477,8 @@ class IfStmtNode(Node):
 class ElseStmtNode(Node):
     def __init__(self, body=None, lineno=None, col_offset=None):
         self.body = body or []
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        value = []
-        for n in self.body:
-            result = n.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    value.append(i)
-            else:
-                value.append(result)
-        return value
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -643,27 +493,8 @@ class SlotDefNode(Node):
     def __init__(self, text, body=None, lineno=None, col_offset=None):
         self.text = text.strip()
         self.body = body or []
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        ast_ = self.ast_
-        result = []
-        expr = self.text[1:]
-        if not expr.endswith(':'):
-            expr += ':'
-        expr += 'pass'
-        value = ast.parse(expr).body[0]
-        value.lineno = ast_.lineno
-        value.col_offset = ast_.col_offset
-        #XXX: if self.nodes is empty list raise TemplateError
-        for n in self.body:
-            result = n.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    value.body.append(i)
-            else:
-                value.body.append(result)
-        return value
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -677,16 +508,8 @@ class SlotDefNode(Node):
 class SlotCallNode(Node):
     def __init__(self, text, lineno=None, col_offset=None):
         self.text = text.strip()
-        self.ast_ = AstWrapper(lineno, col_offset)
-
-    def to_ast(self):
-        ast_ = self.ast_
-        expr = self.text
-        value = ast.parse(expr).body[0].value
-        value.lineno = ast_.lineno
-        value.col_offset = ast_.col_offset
-        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
-                                         args=[value], keywords=[]))
+        self.lineno = lineno
+        self.col_offset = col_offset
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
@@ -1138,6 +961,207 @@ block_parser = Parser((
 ))
 
 
+class MintToPythonTransformer(ast.NodeTransformer):
+
+    def visit_MintTemplate(self, node):
+        ast_ = AstWrapper(1,1)
+        module = ast_.Module(body=[
+            ast_.FunctionDef(name=MAIN_FUNCTION, 
+                             body=[], 
+                             args=ast_.arguments(args=[], vararg=None, kwargs=None, defaults=[]),
+                             decorator_list=[])])
+        body = module.body[0].body
+        for n in node.body:
+            result = self.visit(n)
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    body.append(i)
+            else:
+                body.append(result)
+        return module
+
+    def visit_TextNode(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[self.get_value(node, ast_)],
+                                         keywords=[], starargs=None, kwargs=None))
+
+    def visit_PythonExpressionNode(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[self.get_value(node, ast_)],
+                                         keywords=[], starargs=None, kwargs=None))
+
+    def visit_SetAttrNode(self, node):
+        ast_ = AstWrapper(node.attr.lineno, node.attr.col_offset)
+        key, value = self.get_value(node.attr, ast_)
+        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                                            attr='set'),
+                                        args=[key, value],
+                                        keywords=[],
+                                        starargs=None, kwargs=None))
+
+    def visit_AppendAttrNode(self, node):
+        ast_ = AstWrapper(node.attr.lineno, node.attr.col_offset)
+        key, value = self.get_value(node.attr, ast_)
+        value = ast_.BinOp(
+            left=ast_.BoolOp(
+                values=[ast_.Call(
+                    func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                        attr='get'),
+                    args=[key],
+                    keywords=[],
+                    starargs=None, kwargs=None), ast_.Str(s=u'')],
+                op=ast.Or()),
+            op=ast.Add(), 
+            right=value)
+        return ast_.Expr(value=ast_.Call(func=ast_.Attribute(value=ast_.Name(id=CURRENT_NODE),
+                                                            attr='set'),
+                                        args=[key, value],
+                                        keywords=[],
+                                        starargs=None, kwargs=None))
+
+    def visit_TagNode(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        name = CURRENT_NODE
+        attrs = ast_.Dict(keys=[], values=[])
+        for a in node.attrs:
+            k, v = self.get_value(a, ast_)
+            attrs.keys.append(k)
+            attrs.values.append(v)
+        nodes = []
+        # tag start
+        node_start = ast_.Assign(targets=[ast_.Name(id=name, ctx=Store())],
+                           value=ast_.Call(func=ast_.Name(id=TAG_START),
+                                           args=[ast_.Str(s=escape(node.name)), attrs],
+                                           keywords=[], starargs=None, kwargs=None))
+        nodes.append(node_start)
+        for n in node.body:
+            result = self.visit(n)
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    nodes.append(i)
+            else:
+                nodes.append(result)
+        # tag end
+        node_end = ast_.Expr(value=ast_.Call(func=ast_.Name(id=TAG_END),
+                                             args=[ast_.Str(s=escape(node.name))],
+                                             keywords=[], starargs=None, kwargs=None))
+        nodes.append(node_end)
+        return nodes
+
+    def visit_ForStmtNode(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        result = []
+        expr = node.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        value = ast.parse(expr).body[0]
+        for n in node.body:
+            result = self.visit(n)
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        return value
+
+    def visit_IfStmtNode(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        result = []
+        expr = node.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        if expr.startswith('el'):
+            expr = expr[2:]
+        value = ast.parse(expr).body[0]
+        value.body = []
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        #XXX: if nodes is empty list raise TemplateError
+        for n in node.body:
+            result = self.visit(n)
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        for n in node.orelse:
+            result = self.visit(n)
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.orelse.append(i)
+            else:
+                value.orelse.append(result)
+        return value
+
+    def visit_ElseStmtNode(self, node):
+        value = []
+        for n in node.body:
+            result = self.visit(n)
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.append(i)
+            else:
+                value.append(result)
+        return value
+
+    def visit_SlotDefNode(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        result = []
+        expr = node.text[1:]
+        if not expr.endswith(':'):
+            expr += ':'
+        expr += 'pass'
+        value = ast.parse(expr).body[0]
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        #XXX: if self.nodes is empty list raise TemplateError
+        for n in node.body:
+            result = self.visit(n)
+            if isinstance(result, (list, tuple)):
+                for i in result:
+                    value.body.append(i)
+            else:
+                value.body.append(result)
+        return value
+
+    def visit_SlotCallNode(self, node):
+        ast_ = AstWrapper(node.lineno, node.col_offset)
+        expr = node.text
+        value = ast.parse(expr).body[0].value
+        value.lineno = ast_.lineno
+        value.col_offset = ast_.col_offset
+        return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
+                                         args=[value], keywords=[]))
+
+    def get_value(self, node, ast_, ctx='tag'):
+        if isinstance(node, TextNode):
+            return ast_.Str(s=escape(node.text, ctx=ctx))
+        elif isinstance(node, PythonExpressionNode):
+            expr = ast.parse(node.text).body[0].value
+            return ast_.Call(func=ast_.Name(id=ESCAPE_HELLPER),
+                             args=[expr],
+                             keywords=[ast.keyword(arg='ctx', value=ast_.Str(s=ctx))], 
+                             starargs=None, kwargs=None)
+        elif isinstance(node, TagAttrNode):
+            key = ast_.Str(s=node.name)
+            value = ast_.Str(s=u'')
+            nodes = list(node.value)
+            if nodes:
+                value = ast_.Call(func=ast_.Attribute(value=ast_.Str(s=u''),
+                                                      attr='join'),
+                                  args=[ast_.Tuple(elts=[self.get_value(n, ast_, ctx='attr') for n in nodes])],
+                                  keywords=[], starargs=None, kwargs=None)
+            return key, value
+
+
+
+
 class SlotsGetter(ast.NodeTransformer):
     'Node transformer, collects slots'
     def __init__(self):
@@ -1193,29 +1217,14 @@ def _correct_inheritance(new_slots, old_slots):
     return slots
 
 
-def mint_tree(tokens_stream):
+def get_mint_tree(tokens_stream):
     '''
     This function is wrapper to normal parsers (tag_parser, block_parser, etc.).
     Returns mint tree.
     '''
-    ast_ = AstWrapper(1,0)
-    module = ast_.Module(body=[
-        ast_.FunctionDef(name=MAIN_FUNCTION, 
-                         body=[], 
-                         args=ast_.arguments(args=[], vararg=None, kwargs=None, defaults=[]),
-                         decorator_list=[]),
-        ])
     smart_stack = RecursiveStack()
     block_parser.parse(tokens_stream, smart_stack)
-    ctx = module.body[0].body
-    for item in smart_stack.stack:
-        result = item.to_ast()
-        if isinstance(result, (list, tuple)):
-            for i in result:
-                ctx.append(i)
-        else:
-            ctx.append(result)
-    return module
+    return MintTemplate(body=smart_stack.stack)
 
 ############# PARSER END
 
@@ -1290,7 +1299,8 @@ class Template(object):
     def tree(self, slots=None):
         slots = slots or {}
         source = StringIO(self.source) if self.source else open(self.filename, 'r')
-        tree = mint_tree(tokenizer(source, indent=self.indent))
+        mint_tree = get_mint_tree(tokenizer(source, indent=self.indent))
+        tree = MintToPythonTransformer().visit(mint_tree)
         slots_getter = SlotsGetter()
         slots_getter.visit(tree.body[0])
         _slots, base_template_name = slots_getter.slots, slots_getter.base
