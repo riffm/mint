@@ -1140,8 +1140,8 @@ block_parser = Parser((
 
 class SlotsGetter(ast.NodeTransformer):
     'Node transformer, collects slots'
-    def __init__(self, slots=None):
-        self.slots = slots or {}
+    def __init__(self):
+        self.slots = {}
         self.base = None
     def visit_FunctionDef(self, node):
         ast_ = AstWrapper(node.lineno, node.col_offset)
@@ -1215,9 +1215,7 @@ def mint_tree(tokens_stream):
                 ctx.append(i)
         else:
             ctx.append(result)
-    slots_getter = SlotsGetter()
-    slots_getter.visit(module.body[0])
-    return module, slots_getter.slots, slots_getter.base
+    return module
 
 ############# PARSER END
 
@@ -1292,7 +1290,10 @@ class Template(object):
     def tree(self, slots=None):
         slots = slots or {}
         source = StringIO(self.source) if self.source else open(self.filename, 'r')
-        tree, _slots, base_template_name = mint_tree(tokenizer(source, indent=self.indent))
+        tree = mint_tree(tokenizer(source, indent=self.indent))
+        slots_getter = SlotsGetter()
+        slots_getter.visit(tree.body[0])
+        _slots, base_template_name = slots_getter.slots, slots_getter.base
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
         slots = _correct_inheritance(slots, _slots)
