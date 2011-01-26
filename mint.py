@@ -318,6 +318,8 @@ class MintTemplate(Node):
             return self.body==other.body
         return False
 
+    def __repr__(self):
+        return '%s(body=%r)' % (self.__class__.__name__, self.body)
 
 
 class BaseTemplate(Node):
@@ -348,7 +350,7 @@ class TextNode(Node):
         return '%s(%r)' % (self.__class__.__name__, self.text)
 
 
-class PythonExpressionNode(Node):
+class ExpressionNode(Node):
     def __init__(self, text, lineno=None, col_offset=None):
         self.text = text.strip()
         self.lineno = lineno
@@ -620,7 +622,7 @@ def push_stack(t, s):
 def py_expr(t, s):
     my_tokens = get_tokens(s)
     lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
-    s.push(PythonExpressionNode(u''.join([t[1] for t in my_tokens]), 
+    s.push(ExpressionNode(u''.join([t[1] for t in my_tokens]), 
                                 lineno=lineno, col_offset=col_offset))
 
 def text_value(t, s):
@@ -976,7 +978,7 @@ class MintToPythonTransformer(ast.NodeTransformer):
                                          args=[self.get_value(node, ast_)],
                                          keywords=[], starargs=None, kwargs=None))
 
-    def visit_PythonExpressionNode(self, node):
+    def visit_ExpressionNode(self, node):
         ast_ = AstWrapper(node.lineno, node.col_offset)
         return ast_.Expr(value=ast_.Call(func=ast_.Name(id=DATA),
                                          args=[self.get_value(node, ast_)],
@@ -1132,7 +1134,7 @@ class MintToPythonTransformer(ast.NodeTransformer):
     def get_value(self, node, ast_, ctx='tag'):
         if isinstance(node, TextNode):
             return ast_.Str(s=escape(node.text, ctx=ctx))
-        elif isinstance(node, PythonExpressionNode):
+        elif isinstance(node, ExpressionNode):
             expr = ast.parse(node.text).body[0].value
             return ast_.Call(func=ast_.Name(id=ESCAPE_HELLPER),
                              args=[expr],

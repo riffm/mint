@@ -332,6 +332,15 @@ class Parser(unittest.TestCase):
                          mint.MintTemplate(body=[
                              mint.TextNode('text content\n', lineno=1, col_offset=1)]))
 
+    def test_expression_node(self):
+        'Expression node'
+        tree = self.get_mint_tree('{{ expression }}')
+        #XXX: Do we really need TextNode with "\n" at the end?
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                             mint.ExpressionNode('expression', lineno=1, col_offset=1),
+                             mint.TextNode('\n', lineno=1, col_offset=17)]))
+
     def test_tag_node(self):
         'Tag node'
         tree = self.get_mint_tree('@tag')
@@ -350,6 +359,54 @@ class Parser(unittest.TestCase):
                                                                                         lineno=1, 
                                                                                         col_offset=1)],
                                                                     lineno=1, col_offset=1)], 
+                                           lineno=1, col_offset=1)]))
+
+    def test_tag_node3(self):
+        'Tag node with attrs and body text'
+        tree = self.get_mint_tree('@tag.attr(value)\n'
+                                  '    text value')
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                             mint.TagNode('tag', 
+                                           attrs=[mint.TagAttrNode('attr', 
+                                                                   value=[mint.TextNode('value', 
+                                                                                        lineno=1, 
+                                                                                        col_offset=1)],
+                                                                    lineno=1, col_offset=1)],
+                                           body=[mint.TextNode('text value\n', lineno=2, col_offset=5)],
+                                           lineno=1, col_offset=1)]))
+
+    def test_tag_node4(self):
+        'Tag node with child tag'
+        tree = self.get_mint_tree('@tag\n'
+                                  '    @tag2')
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                             mint.TagNode('tag', attrs=[],
+                                           body=[mint.TagNode('tag2', attrs=[], body=[],
+                                                              lineno=2, col_offset=5)],
+                                           lineno=1, col_offset=1)]))
+
+    def test_tag_node5(self):
+        'Nodes for short tags record'
+        tree = self.get_mint_tree('@tag @tag2')
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                             mint.TagNode('tag', attrs=[],
+                                           body=[mint.TagNode('tag2', attrs=[], body=[],
+                                                              lineno=2, col_offset=5)],
+                                           lineno=1, col_offset=1)]))
+
+    def test_tag_node6(self):
+        'Nodes for short tags record with text'
+        tree = self.get_mint_tree('@tag @tag2 text value')
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                             mint.TagNode('tag', attrs=[],
+                                           body=[mint.TagNode('tag2', attrs=[], 
+                                                              body=[mint.TextNode('text value\n',
+                                                                                  lineno=2, col_offset=5)],
+                                                              lineno=2, col_offset=5)],
                                            lineno=1, col_offset=1)]))
 
 
