@@ -80,10 +80,12 @@ TOKEN_TAG_ATTR_SET = TokenWrapper('tag_attr_set', value='%s.' % TAG_CHAR)
 TOKEN_TAG_ATTR_APPEND = TokenWrapper('tag_attr_append', value='%s+' % TAG_CHAR)
 TOKEN_BASE_TEMPLATE = TokenWrapper('base_template', value='%sbase: ' % STMT_CHAR)
 TOKEN_STATEMENT_IF = TokenWrapper('statement_if', value='%sif ' % STMT_CHAR)
-TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', value='%selif ' % STMT_CHAR)
+TOKEN_STATEMENT_ELIF = TokenWrapper('statement_elif', regex_str=r'(%selif |%selse if )' % (
+    re.escape(STMT_CHAR), re.escape(STMT_CHAR)))
 TOKEN_STATEMENT_ELSE = TokenWrapper('statement_else', value='%selse:' % STMT_CHAR)
 TOKEN_STATEMENT_FOR = TokenWrapper('statement_for', value='%sfor ' % STMT_CHAR)
-TOKEN_SLOT_DEF = TokenWrapper('slot_def', value='%sdef ' % STMT_CHAR)
+TOKEN_SLOT_DEF = TokenWrapper('slot_def', regex_str=r'(%sdef |%sfunction )' % (re.escape(STMT_CHAR),
+                                                                               re.escape(STMT_CHAR)))
 TOKEN_STMT_CHAR = TokenWrapper('hash', value=STMT_CHAR)
 TOKEN_COMMENT = TokenWrapper('comment', value=COMMENT_CHAR)
 TOKEN_BACKSLASH = TokenWrapper('backslash', value='\\')
@@ -343,11 +345,13 @@ class TextNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.text == other.text
+            return self.text==other.text and self.lineno==other.lineno \
+                   and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.text)
+        return '%s(%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.text,
+                                                     self.lineno, self.col_offset)
 
 
 class ExpressionNode(Node):
@@ -358,11 +362,13 @@ class ExpressionNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.text == other.text
+            return self.text==other.text and self.lineno==other.lineno \
+                   and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.text)
+        return '%s(%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.text,
+                                                     self.lineno, self.col_offset)
 
 
 class TagAttrNode(Node):
@@ -374,11 +380,13 @@ class TagAttrNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.name==other.name and self.value==other.value
+            return self.name==other.name and self.value==other.value and self.lineno==other.lineno \
+                   and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r, value=%r)' % (self.__class__.__name__, self.name, self.value)
+        return '%s(%r, value=%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.name,
+                                                               self.value, self.lineno, self.col_offset)
 
 
 class SetAttrNode(Node):
@@ -411,11 +419,13 @@ class TagNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.name==other.name and self.body==other.body and self.attrs==other.attrs
+            return self.name==other.name and self.body==other.body and self.attrs==other.attrs\
+                   and self.lineno==other.lineno and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r, attrs=%r, body=%r)' % (self.__class__.__name__, self.name, self.attrs, self.body)
+        return '%s(%r, attrs=%r, body=%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.name,
+            self.attrs, self.body, self.lineno, self.col_offset)
 
 
 class ForStmtNode(Node):
@@ -427,11 +437,13 @@ class ForStmtNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.text==other.text and self.body==other.body
+            return self.text==other.text and self.body==other.body and self.lineno==other.lineno \
+                   and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r, body=%r)' % (self.__class__.__name__, self.text, self.body)
+        return '%s(%r, body=%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.text,
+                                                              self.body, self.lineno, self.col_offset)
 
 
 class IfStmtNode(Node):
@@ -444,13 +456,14 @@ class IfStmtNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.text==other.text and self.body==other.body and self.orelse==other.orelse
+            return self.text==other.text and self.body==other.body and self.orelse==other.orelse\
+                   and self.lineno==other.lineno and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r, body=%r, orelse=%r)' % (self.__class__.__name__, 
+        return '%s(%r, body=%r, orelse=%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, 
                                                 self.text, self.body,
-                                                self.orelse)
+                                                self.orelse, self.lineno, self.col_offset)
 
 
 class ElseStmtNode(Node):
@@ -461,11 +474,13 @@ class ElseStmtNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.body==other.body
+            return self.body==other.body and self.lineno==other.lineno \
+                   and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(body=%r)' % (self.__class__.__name__, self.body)
+        return '%s(body=%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.body,
+                                                          self.lineno, self.col_offset)
 
 
 class SlotDefNode(Node):
@@ -477,11 +492,13 @@ class SlotDefNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.text==other.text and self.body==other.body
+            return self.text==other.text and self.body==other.body and self.lineno==other.lineno \
+                   and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r, body=%r)' % (self.__class__.__name__, self.text, self.body)
+        return '%s(%r, body=%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.text,
+                                                              self.body, self.lineno, self.col_offset)
 
 
 class SlotCallNode(Node):
@@ -492,11 +509,13 @@ class SlotCallNode(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.text==other.text
+            return self.text==other.text and self.lineno==other.lineno \
+                   and self.col_offset==other.col_offset
         return False
 
     def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.text)
+        return '%s(%r, lineno=%d, col_offset=%d)' % (self.__class__.__name__, self.text, 
+                                                     self.lineno, self.col_offset)
 
 ##### NODES END
 
@@ -621,7 +640,7 @@ def push_stack(t, s):
 # text data and inline python expressions
 def py_expr(t, s):
     my_tokens = get_tokens(s)
-    lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+    lineno, col_offset = my_tokens[0][2], my_tokens[0][3] - 2
     s.push(ExpressionNode(u''.join([t[1] for t in my_tokens]), 
                                 lineno=lineno, col_offset=col_offset))
 
@@ -674,7 +693,7 @@ def tag_name(t, s):
     #if isinstance(s.current, (list, tuple)):
     my_tokens = get_tokens(s)
     if my_tokens:
-        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3] - 1
         s.push(TagNode(u''.join([t[1] for t in my_tokens]), 
                        lineno=lineno, col_offset=col_offset))
 
@@ -719,7 +738,7 @@ def tag_node(t, s):
     if isinstance(tag, (list, tuple)):
         my_tokens = get_tokens(s)
         my_tokens.append(tag)
-        lineno, col_offset = my_tokens[0][2], my_tokens[0][3]
+        lineno, col_offset = my_tokens[0][2], my_tokens[0][3] - 1
         tag = TagNode(u''.join([t[1] for t in my_tokens]), 
                       lineno=lineno, col_offset=col_offset)
     if attrs:
@@ -806,7 +825,7 @@ def elif_stmt(t, s):
     s.current.orelse.append(stmt)
 
 def else_stmt(t, s):
-    lineno, col_offset = t[2], t[3]
+    lineno, col_offset = t[2], t[3] - 6
     if not isinstance(s.current, IfStmtNode):
         pass
         #XXX: raise TemplateError
