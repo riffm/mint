@@ -315,7 +315,7 @@ class MintTemplate(Node):
 
     def __eq__(self, other):
         if isinstance(other, self.__class__):
-            return self.body == other.body
+            return self.body==other.body
         return False
 
 

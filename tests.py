@@ -322,34 +322,35 @@ class Tokenizer(unittest.TestCase):
 
 class Parser(unittest.TestCase):
 
-    def get_mint_tree(self, source):
-        smart_stack = mint.RecursiveStack()
-        mint.block_parser.parse(mint.tokenizer(StringIO(source)), smart_stack)
-        return smart_stack
+    def get_mint_tree(self, source, indent=4):
+        return mint.get_mint_tree(mint.tokenizer(StringIO(source), indent=indent))
 
     def test_text_node(self):
         'Text node'
         tree = self.get_mint_tree('text content')
-        self.assertEqual(tree.stack,
-                         [mint.TextNode('text content\n', lineno=1, col_offset=1)])
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                             mint.TextNode('text content\n', lineno=1, col_offset=1)]))
 
     def test_tag_node(self):
         'Tag node'
         tree = self.get_mint_tree('@tag')
-        self.assertEqual(tree.stack,
-                         [mint.TagNode('tag', lineno=1, col_offset=1)])
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                            mint.TagNode('tag', lineno=1, col_offset=1)]))
 
     def test_tag_node2(self):
         'Tag node with attrs'
         tree = self.get_mint_tree('@tag.attr(value)')
-        self.assertEqual(tree.stack,
-                         [mint.TagNode('tag', 
-                                       attrs=[mint.TagAttrNode('attr', 
-                                                               value=[mint.TextNode('value', 
-                                                                                    lineno=1, 
-                                                                                    col_offset=1)],
-                                                                lineno=1, col_offset=1)], 
-                                       lineno=1, col_offset=1)])
+        self.assertEqual(tree,
+                         mint.MintTemplate(body=[
+                             mint.TagNode('tag', 
+                                           attrs=[mint.TagAttrNode('attr', 
+                                                                   value=[mint.TextNode('value', 
+                                                                                        lineno=1, 
+                                                                                        col_offset=1)],
+                                                                    lineno=1, col_offset=1)], 
+                                           lineno=1, col_offset=1)]))
 
 
 
