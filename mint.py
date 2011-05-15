@@ -194,8 +194,9 @@ def base_tokenizer(fp):
     template_file.close()
 
 
-def indent_tokenizer(tokens_stream, indent=None):
+def indent_tokenizer(tokens_stream):
     current_indent = 0
+    indent = 0
     for tok in tokens_stream:
         token, value, lineno, pos = tok
         # backslashed line transfer
@@ -224,14 +225,17 @@ def indent_tokenizer(tokens_stream, indent=None):
             next_token, next_value, next_lineno, next_pos = next_tok
             if next_token is TOKEN_WHITESPACE:
                 ws_count = len(next_value)
+                if indent == 0:
+                    indent = ws_count
                 if ws_count >= indent:
                     times = ws_count/indent
                     rest = ws_count % indent
                     range_ = times - current_indent
                     if range_ > 0:
                         # indenting
+                        tmp_curr_indent = current_indent
                         for i in range(range_):
-                            yield TOKEN_INDENT, ' '*indent, next_lineno, i*indent+1
+                            yield TOKEN_INDENT, ' '*indent, next_lineno, (i+tmp_curr_indent)*indent+1
                             current_indent += 1
                     elif range_ < 0:
                         # unindenting
@@ -244,7 +248,7 @@ def indent_tokenizer(tokens_stream, indent=None):
             # next token is the whitespace lighter than indent or any other
             # token, so unindenting to zero level
             for i in range(current_indent):
-                yield TOKEN_UNINDENT, ' '*indent, next_lineno, next_pos
+                yield TOKEN_UNINDENT, ' '*indent, lineno, pos
             current_indent = 0
             yield next_tok
             # we do not yielding newline tokens
@@ -252,9 +256,8 @@ def indent_tokenizer(tokens_stream, indent=None):
         yield tok
 
 
-def tokenizer(fileobj, indent=None):
-    return indent_tokenizer(
-            base_tokenizer(fileobj), indent=indent or 4)
+def tokenizer(fileobj):
+    return indent_tokenizer(base_tokenizer(fileobj))
 
 
 
@@ -1127,37 +1130,31 @@ def _correct_inheritance(new_slots, old_slots):
     return slots
 
 
-
-class MintParser(object):
+def parse_stream(tokens_stream):
     '''
-    This class is wrapper to normal parsers (tag_parser, block_parser, etc.).
-    This wrapper returns slots and base template name (if any).
-    and returns ast module node.
+    This function is wrapper to normal parsers (tag_parser, block_parser, etc.).
+    This wrapper returns ast module node, slots and base template name (if any).
     '''
-    def __init__(self, indent=4):
-        self.indent = indent
-
-    def parse(self, tokens_stream):
-        ast_ = AstWrapper(1,0)
-        module = ast_.Module(body=[
-            ast_.FunctionDef(name=MAIN_FUNCTION, 
-                             body=[], 
-                             args=ast_.arguments(args=[], vararg=None, kwargs=None, defaults=[]),
-                             decorator_list=[]),
-            ])
-        smart_stack = RecursiveStack()
-        block_parser.parse(tokens_stream, smart_stack)
-        ctx = module.body[0].body
-        for item in smart_stack.stack:
-            result = item.to_ast()
-            if isinstance(result, (list, tuple)):
-                for i in result:
-                    ctx.append(i)
-            else:
-                ctx.append(result)
-        slots_getter = SlotsGetter()
-        slots_getter.visit(module.body[0])
-        return module, slots_getter.slots, slots_getter.base
+    ast_ = AstWrapper(1,0)
+    module = ast_.Module(body=[
+        ast_.FunctionDef(name=MAIN_FUNCTION, 
+                         body=[], 
+                         args=ast_.arguments(args=[], vararg=None, kwargs=None, defaults=[]),
+                         decorator_list=[]),
+        ])
+    smart_stack = RecursiveStack()
+    block_parser.parse(tokens_stream, smart_stack)
+    ctx = module.body[0].body
+    for item in smart_stack.stack:
+        result = item.to_ast()
+        if isinstance(result, (list, tuple)):
+            for i in result:
+                ctx.append(i)
+        else:
+            ctx.append(result)
+    slots_getter = SlotsGetter()
+    slots_getter.visit(module.body[0])
+    return module, slots_getter.slots, slots_getter.base
 
 ############# PARSER END
 
@@ -1220,20 +1217,18 @@ def new_tree():
 
 class Template(object):
 
-    def __init__(self, source, filename=None, loader=None, globals=None, indent=4):
+    def __init__(self, source, filename=None, loader=None, globals=None):
         assert source or filename, 'Please provide source code or filename'
         self.source = source
         self.filename = filename if filename else '<string>'
         self._loader = loader
-        self.indent = indent
         self.compiled_code = compile(self.tree(), self.filename, 'exec')
         self.globals = globals or {}
 
     def tree(self, slots=None):
         slots = slots or {}
-        parser = MintParser(indent=4)
         source = StringIO(self.source) if self.source else open(self.filename, 'r')
-        tree, _slots, base_template_name = parser.parse(tokenizer(source, indent=self.indent))
+        tree, _slots, base_template_name = parse_stream(tokenizer(source))
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
         slots = _correct_inheritance(slots, _slots)

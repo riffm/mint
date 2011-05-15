@@ -254,20 +254,28 @@ class Tokenizer(unittest.TestCase):
 
     def test_indent(self):
         'One indent'
-        self.assertEqual(list(mint.tokenizer(StringIO('    \n'))),
+        self.assertEqual(list(mint.tokenizer(StringIO('    '))),
                          [(mint.TOKEN_INDENT, '    ', 1, 1),
                           (mint.TOKEN_NEWLINE, '\n', 1, 5),
-                          (mint.TOKEN_UNINDENT, '    ', 2, 0),
+                          (mint.TOKEN_UNINDENT, '    ', 1, 5),
                           (mint.TOKEN_EOF, 'EOF', 2, 0)])
 
     def test_indent2(self):
+        'One indent and new line'
+        self.assertEqual(list(mint.tokenizer(StringIO('    \n'))),
+                         [(mint.TOKEN_INDENT, '    ', 1, 1),
+                          (mint.TOKEN_NEWLINE, '\n', 1, 5),
+                          (mint.TOKEN_UNINDENT, '    ', 1, 5),
+                          (mint.TOKEN_EOF, 'EOF', 2, 0)])
+
+    def test_indent2_1(self):
         'Line and indent'
         self.assertEqual(list(mint.tokenizer(StringIO('\n'
-                                                      '    \n'))),
+                                                      '    '))),
                          [(mint.TOKEN_NEWLINE, '\n', 1, 1),
                           (mint.TOKEN_INDENT, '    ', 2, 1),
                           (mint.TOKEN_NEWLINE, '\n', 2, 5),
-                          (mint.TOKEN_UNINDENT, '    ', 3, 0),
+                          (mint.TOKEN_UNINDENT, '    ', 2, 5),
                           (mint.TOKEN_EOF, 'EOF', 3, 0)])
 
     def test_indent3(self):
@@ -277,23 +285,24 @@ class Tokenizer(unittest.TestCase):
                                                       '    '))), 
                          [(mint.TOKEN_INDENT, '    ', 1, 1),
                           (mint.TOKEN_NEWLINE, '\n', 1, 5),
-                          (mint.TOKEN_INDENT, '    ', 2, 1),
+                          (mint.TOKEN_INDENT, '    ', 2, 5),
                           (mint.TOKEN_NEWLINE, '\n', 2, 9),
                           (mint.TOKEN_UNINDENT, '    ', 3, 1),
                           (mint.TOKEN_NEWLINE, '\n', 3, 5),
-                          (mint.TOKEN_UNINDENT, '    ', 4, 0),
+                          (mint.TOKEN_UNINDENT, '    ', 3, 5),
                           (mint.TOKEN_EOF, 'EOF', 4, 0)])
 
     def test_indent4(self):
         'Mixed indent'
         self.assertEqual(list(mint.tokenizer(StringIO('   \n'
                                                       '       '))), 
-                         [(mint.TOKEN_WHITESPACE, '   ', 1, 1),
+                         [(mint.TOKEN_INDENT, '   ', 1, 1),
                           (mint.TOKEN_NEWLINE, '\n', 1, 4),
-                          (mint.TOKEN_INDENT, '    ', 2, 1),
-                          (mint.TOKEN_WHITESPACE, '   ', 2, 5),
+                          (mint.TOKEN_INDENT, '   ', 2, 4),
+                          (mint.TOKEN_WHITESPACE, ' ', 2, 7),
                           (mint.TOKEN_NEWLINE, '\n', 2, 8),
-                          (mint.TOKEN_UNINDENT, '    ', 3, 0),
+                          (mint.TOKEN_UNINDENT, '   ', 2, 8),
+                          (mint.TOKEN_UNINDENT, '   ', 2, 8),
                           (mint.TOKEN_EOF, 'EOF', 3, 0)])
 
     def test_indent5(self):
@@ -302,22 +311,44 @@ class Tokenizer(unittest.TestCase):
                                                       '   '))), 
                          [(mint.TOKEN_INDENT, '    ', 1, 1),
                           (mint.TOKEN_NEWLINE, '\n', 1, 5),
-                          (mint.TOKEN_UNINDENT, '    ', 2, 1),
+                          (mint.TOKEN_UNINDENT, '    ', 1, 5),
                           (mint.TOKEN_WHITESPACE, '   ', 2, 1),
                           (mint.TOKEN_NEWLINE, '\n', 2, 4),
                           (mint.TOKEN_EOF, 'EOF', 3, 0)])
 
     def test_indent6(self):
-        'Double indent'
+        'Pyramid'
         self.assertEqual(list(mint.tokenizer(StringIO('\n'
-                                                      '        '))), 
+                                                      '    \n'
+                                                      '        \n'
+                                                      '    '))), 
                          [(mint.TOKEN_NEWLINE, '\n', 1, 1),
                           (mint.TOKEN_INDENT, '    ', 2, 1),
-                          (mint.TOKEN_INDENT, '    ', 2, 5),
-                          (mint.TOKEN_NEWLINE, '\n', 2, 9),
-                          (mint.TOKEN_UNINDENT, '    ', 3, 0),
-                          (mint.TOKEN_UNINDENT, '    ', 3, 0),
-                          (mint.TOKEN_EOF, 'EOF', 3, 0)])
+                          (mint.TOKEN_NEWLINE, '\n', 2, 5),
+                          (mint.TOKEN_INDENT, '    ', 3, 5),
+                          (mint.TOKEN_NEWLINE, '\n', 3, 9),
+                          (mint.TOKEN_UNINDENT, '    ', 4, 1),
+                          (mint.TOKEN_NEWLINE, '\n', 4, 5),
+                          (mint.TOKEN_UNINDENT, '    ', 4, 5),
+                          (mint.TOKEN_EOF, 'EOF', 5, 0)])
+
+    def test_indent7(self):
+        'Pyramid with double indent'
+        self.assertEqual(list(mint.tokenizer(StringIO('\n'
+                                                      '    \n'
+                                                      '            \n'
+                                                      '    '))), 
+                         [(mint.TOKEN_NEWLINE, '\n', 1, 1),
+                          (mint.TOKEN_INDENT, '    ', 2, 1),
+                          (mint.TOKEN_NEWLINE, '\n', 2, 5),
+                          (mint.TOKEN_INDENT, '    ', 3, 5),
+                          (mint.TOKEN_INDENT, '    ', 3, 9),
+                          (mint.TOKEN_NEWLINE, '\n', 3, 13),
+                          (mint.TOKEN_UNINDENT, '    ', 4, 1),
+                          (mint.TOKEN_UNINDENT, '    ', 4, 1),
+                          (mint.TOKEN_NEWLINE, '\n', 4, 5),
+                          (mint.TOKEN_UNINDENT, '    ', 4, 5),
+                          (mint.TOKEN_EOF, 'EOF', 5, 0)])
 
 
 class DummyLoader(object):
