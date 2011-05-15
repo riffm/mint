@@ -196,6 +196,7 @@ def base_tokenizer(fp):
 
 def indent_tokenizer(tokens_stream, indent=None):
     current_indent = 0
+    indent = 0
     for tok in tokens_stream:
         token, value, lineno, pos = tok
         # backslashed line transfer
@@ -224,6 +225,8 @@ def indent_tokenizer(tokens_stream, indent=None):
             next_token, next_value, next_lineno, next_pos = next_tok
             if next_token is TOKEN_WHITESPACE:
                 ws_count = len(next_value)
+                if indent == 0:
+                    indent = ws_count
                 if ws_count >= indent:
                     times = ws_count/indent
                     rest = ws_count % indent
@@ -231,7 +234,7 @@ def indent_tokenizer(tokens_stream, indent=None):
                     if range_ > 0:
                         # indenting
                         for i in range(range_):
-                            yield TOKEN_INDENT, ' '*indent, next_lineno, i*indent+1
+                            yield TOKEN_INDENT, ' '*indent, next_lineno, (i+current_indent)*indent+1
                             current_indent += 1
                     elif range_ < 0:
                         # unindenting
