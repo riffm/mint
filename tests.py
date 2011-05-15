@@ -332,6 +332,24 @@ class Tokenizer(unittest.TestCase):
                           (mint.TOKEN_UNINDENT, '    ', 5, 0),
                           (mint.TOKEN_EOF, 'EOF', 5, 0)])
 
+    def test_indent7(self):
+        'Pyramid with double indent'
+        self.assertEqual(list(mint.tokenizer(StringIO('\n'
+                                                      '    \n'
+                                                      '            \n'
+                                                      '    '))), 
+                         [(mint.TOKEN_NEWLINE, '\n', 1, 1),
+                          (mint.TOKEN_INDENT, '    ', 2, 1),
+                          (mint.TOKEN_NEWLINE, '\n', 2, 5),
+                          (mint.TOKEN_INDENT, '    ', 3, 5),
+                          (mint.TOKEN_INDENT, '    ', 3, 9),
+                          (mint.TOKEN_NEWLINE, '\n', 3, 13),
+                          (mint.TOKEN_UNINDENT, '    ', 4, 1),
+                          (mint.TOKEN_UNINDENT, '    ', 4, 1),
+                          (mint.TOKEN_NEWLINE, '\n', 4, 5),
+                          (mint.TOKEN_UNINDENT, '    ', 5, 0),
+                          (mint.TOKEN_EOF, 'EOF', 5, 0)])
+
 
 class DummyLoader(object):
     def __init__(self, templates):

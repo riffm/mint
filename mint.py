@@ -233,8 +233,9 @@ def indent_tokenizer(tokens_stream, indent=None):
                     range_ = times - current_indent
                     if range_ > 0:
                         # indenting
+                        tmp_curr_indent = current_indent
                         for i in range(range_):
-                            yield TOKEN_INDENT, ' '*indent, next_lineno, (i+current_indent)*indent+1
+                            yield TOKEN_INDENT, ' '*indent, next_lineno, (i+tmp_curr_indent)*indent+1
                             current_indent += 1
                     elif range_ < 0:
                         # unindenting
