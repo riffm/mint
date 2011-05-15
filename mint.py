@@ -248,7 +248,7 @@ def indent_tokenizer(tokens_stream, indent=None):
             # next token is the whitespace lighter than indent or any other
             # token, so unindenting to zero level
             for i in range(current_indent):
-                yield TOKEN_UNINDENT, ' '*indent, next_lineno, next_pos
+                yield TOKEN_UNINDENT, ' '*indent, lineno, pos
             current_indent = 0
             yield next_tok
             # we do not yielding newline tokens
