@@ -194,7 +194,7 @@ def base_tokenizer(fp):
     template_file.close()
 
 
-def indent_tokenizer(tokens_stream, indent=None):
+def indent_tokenizer(tokens_stream):
     current_indent = 0
     indent = 0
     for tok in tokens_stream:
@@ -256,9 +256,8 @@ def indent_tokenizer(tokens_stream, indent=None):
         yield tok
 
 
-def tokenizer(fileobj, indent=None):
-    return indent_tokenizer(
-            base_tokenizer(fileobj), indent=indent or 4)
+def tokenizer(fileobj):
+    return indent_tokenizer(base_tokenizer(fileobj))
 
 
 
@@ -1138,8 +1137,6 @@ class MintParser(object):
     This wrapper returns slots and base template name (if any).
     and returns ast module node.
     '''
-    def __init__(self, indent=4):
-        self.indent = indent
 
     def parse(self, tokens_stream):
         ast_ = AstWrapper(1,0)
@@ -1224,20 +1221,19 @@ def new_tree():
 
 class Template(object):
 
-    def __init__(self, source, filename=None, loader=None, globals=None, indent=4):
+    def __init__(self, source, filename=None, loader=None, globals=None):
         assert source or filename, 'Please provide source code or filename'
         self.source = source
         self.filename = filename if filename else '<string>'
         self._loader = loader
-        self.indent = indent
         self.compiled_code = compile(self.tree(), self.filename, 'exec')
         self.globals = globals or {}
 
     def tree(self, slots=None):
         slots = slots or {}
-        parser = MintParser(indent=4)
+        parser = MintParser()
         source = StringIO(self.source) if self.source else open(self.filename, 'r')
-        tree, _slots, base_template_name = parser.parse(tokenizer(source, indent=self.indent))
+        tree, _slots, base_template_name = parser.parse(tokenizer(source))
         # we do not want to override slot's names,
         # so prefixing existing slots with underscore
         slots = _correct_inheritance(slots, _slots)
