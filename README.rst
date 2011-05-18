@@ -528,4 +528,10 @@ iteration::
 In previous example ``l.cycle('one', 'two', 'three')`` will return one of values provided
 in sequence. It is handy to colorize tables.
 
+Html helpers
+
+- ``utils.script``
+- ``utils.scripts``
+- ``utils.link``
+
 That's all folks!
