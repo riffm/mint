@@ -1457,6 +1457,25 @@ class utils(object):
     def entity(char):
         return Markup(CHARS_ENTITIES.get(char, char))
 
+    @staticmethod
+    def script(src=None, data=None, type='text/javascript'):
+        if src:
+            return Markup('<script type="%s" src="%s"></script>' % (type, src))
+        elif data:
+            return Markup('<script type="%s">%s</script>' % (type, data))
+        return ''
+
+    @staticmethod
+    def scripts(*args, **kwargs):
+        result = []
+        for name in args:
+            result.append(utils.script(name, **kwargs))
+        return ''.join(result)
+
+    @staticmethod
+    def link(href, rel='stylesheet', type='text/css'):
+        return Markup('<link rel="%s" type="%s" href="%s" />' % (rel, type, href))
+
 
 class Looper:
     'Cool class taken from PPA project'
