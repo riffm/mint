@@ -1723,6 +1723,9 @@ if __name__ == '__main__':
     parser.add_option('-c', '--code', dest='code', action='store_true',
                       default=False,
                       help='Show only python code of compiled template.')
+    parser.add_option('-t', '--tokenize', dest='tokenize', action='store_true',
+                      default=False,
+                      help='Show tokens stream of template.')
     parser.add_option('-r', '--repeat', dest='repeat',
                       default=0, metavar='N', type='int',
                       help='Try to render template N times and show time result.')
@@ -1734,6 +1737,9 @@ if __name__ == '__main__':
             printer = Printer()
             printer.visit(template.tree())
             print printer.src.getvalue()
+        elif options.tokenize:
+            for t in tokenizer(StringIO(template.source)):
+                print t
         else:
             print template.render()
         if options.repeat > 0:
