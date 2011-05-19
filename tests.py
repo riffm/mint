@@ -709,5 +709,23 @@ class PythonPart(unittest.TestCase):
                         'base slot\n\nbase2 slot\n\noverrided slot\n')
 
 
+class PprintTests(unittest.TestCase):
+
+    def test_empty(self):
+        'Pprint not so empty template'
+        self.assertEqual(mint.Template('\n', pprint=True).render(), '')
+
+    def test_tag(self):
+        'Pprint tag'
+        self.assertEqual(mint.Template('@tag', pprint=True).render(), '<tag></tag>\n')
+
+    def test_tags(self):
+        'Pprint tag'
+        self.assertEqual(mint.Template('@tag @tag', pprint=True).render(),
+                         '<tag>\n'
+                         '  <tag></tag>\n'
+                         '</tag>\n')
+
+
 if __name__ == '__main__':
     unittest.main()
