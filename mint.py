@@ -1298,17 +1298,21 @@ class RootTreeBuilder(TreeBuilder):
                     self.indent()
                     out.write('\n')
                     out.write(self.indent_text(text))
+                    self.unindent()
+                elif len(text) > 80:
+                    self.indent()
+                    out.write('\n')
+                    out.write(self.indent_text(text))
                     out.write('\n')
                     self.unindent()
                 else:
                     out.write(text)
             if children:
-                if not text:
-                    out.write('\n')
+                out.write('\n')
                 for n in children:
                     self._node_to_unicode(out, n)
 
-            if children:
+            if children or (text and len(text) > 80):
                 out.write(self.indention)
             out.write(u'</' + tag + '>')
             if node.tail:
