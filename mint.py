@@ -1249,6 +1249,11 @@ class RootTreeBuilder(TreeBuilder):
     def __init__(self, *args, **kwargs):
         TreeBuilder.__init__(self, *args, **kwargs)
         self.start('root', {})
+        self._level = -1
+
+    @property
+    def indention(self):
+        return self._level > 0 and '  '*self._level or ''
 
     def to_unicode(self):
         class dummy: pass
@@ -1259,18 +1264,24 @@ class RootTreeBuilder(TreeBuilder):
         self.end('root')
         root = self.close()
         if root.text:
-            out.write(root.text)
+            out.write(self.indent_text(root.text))
+            out.write('\n')
         for node in root:
             self._node_to_unicode(out, node)
         if root.tail:
-            out.write(root.tail)
+            out.write(self.indent_text(root.tail))
         return Markup(u''.join(data))
 
     def _node_to_unicode(self, out, node):
         #NOTE: all data must be escaped during tree building
+        self.indent()
         tag = node.tag
         items = node.items()
         selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
+        children = list(node)
+        text = node.text
+        tail = node.tail
+        out.write(self.indention)
         out.write(u'<' + tag)
         if items:
             items.sort() # lexical order
@@ -1280,14 +1291,42 @@ class RootTreeBuilder(TreeBuilder):
             out.write(u' />')
         else:
             out.write(u'>')
-            if node.text or len(node):
-                if node.text:
-                    out.write(node.text)
-                for n in node:
+            if text:
+                if text.endswith('\n'):
+                    text = text[:-1]
+                if children:
+                    self.indent()
+                    out.write('\n')
+                    out.write(self.indent_text(text))
+                    out.write('\n')
+                    self.unindent()
+                else:
+                    out.write(text)
+            if children:
+                if not text:
+                    out.write('\n')
+                for n in children:
                     self._node_to_unicode(out, n)
+
+            if children:
+                out.write(self.indention)
             out.write(u'</' + tag + '>')
             if node.tail:
-                out.write(node.tail)
+                out.write('\n')
+                tail = node.tail
+                if tail.endswith('\n'):
+                    tail = tail[:-1]
+                out.write(self.indent_text(tail))
+        out.write('\n')
+        self.unindent()
+
+    def indent_text(self, text):
+        return '\n'.join([self.indention+t for t in text.split('\n')])
+
+    def indent(self):
+        self._level += 1
+    def unindent(self):
+        self._level -= 1
 
 
 def new_tree():
