@@ -1542,6 +1542,25 @@ class utils(object):
     def entity(char):
         return Markup(CHARS_ENTITIES.get(char, char))
 
+    @staticmethod
+    def script(src=None, data=None, type='text/javascript'):
+        if src:
+            return Markup('<script type="%s" src="%s"></script>' % (type, src))
+        elif data:
+            return Markup('<script type="%s">%s</script>' % (type, data))
+        return ''
+
+    @staticmethod
+    def scripts(*args, **kwargs):
+        result = []
+        for name in args:
+            result.append(utils.script(name, **kwargs))
+        return ''.join(result)
+
+    @staticmethod
+    def link(href, rel='stylesheet', type='text/css'):
+        return Markup('<link rel="%s" type="%s" href="%s" />' % (rel, type, href))
+
 
 class Looper:
     'Cool class taken from PPA project'
@@ -1783,10 +1802,38 @@ class Printer(ast.NodeVisitor):
 
 
 if __name__ == '__main__':
-    from sys import argv
     import datetime
-    template_name = argv[1]
-    template = Loader('.').get_template(template_name)
-    printer = Printer()
-    printer.visit(template.tree())
-    print printer.src.getvalue()
+    from optparse import OptionParser
+    parser = OptionParser()
+    parser.add_option('-c', '--code', dest='code', action='store_true',
+                      default=False,
+                      help='Show only python code of compiled template.')
+    parser.add_option('-t', '--tokenize', dest='tokenize', action='store_true',
+                      default=False,
+                      help='Show tokens stream of template.')
+    parser.add_option('-r', '--repeat', dest='repeat',
+                      default=0, metavar='N', type='int',
+                      help='Try to render template N times and show time result.')
+    (options, args) = parser.parse_args()
+    if len(args) > 0:
+        template_name = args[0]
+        template = Loader('.').get_template(template_name)
+        if options.code:
+            printer = Printer()
+            printer.visit(template.tree())
+            print printer.src.getvalue()
+        elif options.tokenize:
+            for t in tokenizer(StringIO(template.source)):
+                print t
+        else:
+            print template.render()
+        if options.repeat > 0:
+            now = datetime.datetime.now
+            results = []
+            for i in range(options.repeat):
+                start = now()
+                template.render()
+                results.append(now() - start)
+            print reduce(lambda a,b: a+b, map(lambda x: x.microseconds, results))/len(results), 'microseconds'
+    else:
+        print 'Try --help'
