@@ -1813,11 +1813,14 @@ if __name__ == '__main__':
                       help='Show tokens stream of template.')
     parser.add_option('-r', '--repeat', dest='repeat',
                       default=0, metavar='N', type='int',
-                      help='Try to render template N times and show time result.')
+                      help='Try to render template N times and display average time result.')
+    parser.add_option('-p', '--pprint', dest='pprint', action='store_true',
+                      default=False,
+                      help='Turn pretty print on.')
     (options, args) = parser.parse_args()
     if len(args) > 0:
         template_name = args[0]
-        template = Loader('.').get_template(template_name)
+        template = Loader('.', pprint=options.pprint).get_template(template_name)
         if options.code:
             printer = Printer()
             printer.visit(template.tree())
