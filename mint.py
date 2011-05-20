@@ -16,7 +16,7 @@ import os
 from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
-from xml.etree.ElementTree import TreeBuilder, Element
+from xml.etree.ElementTree import TreeBuilder as _TreeBuilder, Element
 from functools import partial
 
 ############# LEXER
@@ -1244,10 +1244,10 @@ class TemplateNotFound(Exception):
     pass
 
 
-class RootTreeBuilder(TreeBuilder):
+class TreeBuilder(_TreeBuilder):
     'Tree with root element already set'
     def __init__(self, *args, **kwargs):
-        TreeBuilder.__init__(self, *args, **kwargs)
+        _TreeBuilder.__init__(self, *args, **kwargs)
         self.start('root', {})
 
     def to_unicode(self):
@@ -1290,20 +1290,104 @@ class RootTreeBuilder(TreeBuilder):
                 out.write(node.tail)
 
 
-def new_tree():
-    tree = RootTreeBuilder()
-    return tree, tree.start, tree.end, tree.data
+class PprintTreeBuilder(_TreeBuilder):
+    'Tree with root element already set'
+    def __init__(self, *args, **kwargs):
+        _TreeBuilder.__init__(self, *args, **kwargs)
+        self.start('root', {})
+        self._level = -1
+
+    @property
+    def indention(self):
+        return self._level > 0 and '  '*self._level or ''
+
+    def to_unicode(self):
+        class dummy: pass
+        data = []
+        out = dummy()
+        out.write = data.append
+        # out - fast writable object
+        self.end('root')
+        root = self.close()
+        if root.text:
+            out.write(self.indent_text(root.text))
+            out.write('\n')
+        for node in root:
+            self._node_to_unicode(out, node)
+        if root.tail:
+            out.write(self.indent_text(root.tail))
+        return Markup(u''.join(data))
+
+    def _node_to_unicode(self, out, node):
+        #NOTE: all data must be escaped during tree building
+        self.indent()
+        tag = node.tag
+        items = node.items()
+        selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
+        children = list(node)
+        text = node.text
+        tail = node.tail
+        out.write(self.indention)
+        out.write(u'<' + tag)
+        if items:
+            items.sort() # lexical order
+            for k, v in items:
+                out.write(u' %s="%s"' % (k, v))
+        if tag in selfclosed:
+            out.write(u' />')
+        else:
+            out.write(u'>')
+            if text:
+                if text.endswith('\n'):
+                    text = text[:-1]
+                self.indent()
+                out.write('\n')
+                out.write(self.indent_text(text))
+                out.write('\n')
+                self.unindent()
+            if children:
+                out.write('\n')
+                for n in children:
+                    self._node_to_unicode(out, n)
+
+            if children or text:
+                out.write(self.indention)
+            out.write(u'</' + tag + '>')
+            if node.tail:
+                out.write('\n')
+                tail = node.tail
+                if tail.endswith('\n'):
+                    tail = tail[:-1]
+                out.write(self.indent_text(tail))
+        out.write('\n')
+        self.unindent()
+
+    def indent_text(self, text):
+        return '\n'.join([self.indention+t for t in text.split('\n')])
+
+    def indent(self):
+        self._level += 1
+    def unindent(self):
+        self._level -= 1
+
+
+def new_tree(pprint):
+    def wrapper():
+        tree = pprint and PprintTreeBuilder() or TreeBuilder()
+        return tree, tree.start, tree.end, tree.data
+    return wrapper
 
 
 class Template(object):
 
-    def __init__(self, source, filename=None, loader=None, globals=None):
+    def __init__(self, source, filename=None, loader=None, globals=None, pprint=False):
         assert source or filename, 'Please provide source code or filename'
         self.source = source
         self.filename = filename if filename else '<string>'
         self._loader = loader
         self.compiled_code = compile(self.tree(), self.filename, 'exec')
         self.globals = globals or {}
+        self.pprint = pprint
 
     def tree(self, slots=None):
         slots = slots or {}
@@ -1337,7 +1421,7 @@ class Template(object):
         ns = {
             'utils':utils,
             ESCAPE_HELLPER:escape,
-            TREE_FACTORY:new_tree,
+            TREE_FACTORY:new_tree(self.pprint),
         }
         ns.update(self.globals)
         ns.update(kwargs)
@@ -1349,7 +1433,7 @@ class Template(object):
         ns = {
             'utils':utils,
             ESCAPE_HELLPER:escape,
-            TREE_FACTORY:new_tree,
+            TREE_FACTORY:new_tree(self.pprint),
         }
         ns.update(self.globals)
         ns.update(kwargs)
@@ -1367,6 +1451,7 @@ class Loader(object):
         self.cache = kwargs.get('cache', False)
         self._templates_cache = {}
         self.globals = kwargs.get('globals', {})
+        self.pprint = kwargs.get('pprint', 0)
 
     def get_template(self, template):
         if template in self._templates_cache:
@@ -1376,7 +1461,7 @@ class Loader(object):
             if os.path.exists(location) and os.path.isfile(location):
                 with open(location, 'r') as f:
                     tmpl = Template(source=f.read(), filename=f.name,
-                                    loader=self, globals=self.globals)
+                                    loader=self, globals=self.globals, pprint=self.pprint)
                     if self.cache:
                         self._templates_cache[template] = tmpl
                     return tmpl
