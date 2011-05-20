@@ -18,20 +18,22 @@ syn keyword mintStatement    lambda yield
 syn match mintStatement    /^#base:/
 syn match mintStatement    /^\s*#/ nextgroup=mintFunction skipwhite
 syn match mintStatement    /^\s*#def/ nextgroup=mintFunction skipwhite
-syn match   mintStatement    /^\s*@/ display nextgroup=mintFunction skipwhite
-syn match   mintStatement    /^\s*@+[a-zA-Z_][a-zA-Z0-9_:-]*/ display contains=mintFunction
-syn match   mintStatement    /^\s*@\.[a-zA-Z_][a-zA-Z0-9_:-]*/ display contains=mintFunction
-"syn match   mintStatement    "@" display nextgroup=mintFunction skipwhite
+syn match   mintTag    /\s*@/ display nextgroup=mintFunction skipwhite
+syn match   mintTag    /^\s*@+[a-zA-Z_][a-zA-Z0-9_:-]*/ display contains=mintFunction
+syn match   mintTag    /^\s*@\.[a-zA-Z_][a-zA-Z0-9_:-]*/ display contains=mintFunction
 syn match   mintFunction    "[a-zA-Z_][a-zA-Z0-9_:-]*" contained nextgroup=mintAttribute
-syn match   mintAttribute    "\.[a-zA-Z_][a-zA-Z0-9_:-]*" contained
+syn match   mintAttribute    "\.[a-zA-Z_][a-zA-Z0-9_:-]*" contained nextgroup=mintAttributeValue
+syn region  mintAttributeValue     start=/(/ end=/)/ contains=mintStatement,mintPythonRepeat,mintVariable nextgroup=mintAttribute,mintTag
+
 syn region mintVariable     start=/{{/ end=/}}/ contains=mintStatement,mintPythonRepeat,mintException
-syn match mintRepeat    /^\s*#for/
+syn match mintRepeat    /^\s*#for \(.*\):$/
 syn keyword mintPythonRepeat    for while contained
-syn match mintConditional    /^\s*#if/
-syn match mintConditional    /^\s*#elif/
-syn match mintConditional    /^\s*#else:/
+syn match mintConditional    /^\s*#if \(.*\):$/
+syn match mintConditional    /^\s*#elif \(.*\):$/
+syn match mintConditional    /^\s*#else:$/
 syn keyword mintOperator    and in is not or
 syn match   mintComment    "--.*$" contains=mintTodo,@Spell
+syn match   mintComment    /^\s*\/\/.*$/
 syn match   mintEscape    "\\.*$" contains=@Spell
 syn keyword mintTodo        TODO FIXME XXX contained
 
@@ -121,15 +123,16 @@ if version >= 508 || !exists("did_mint_syn_inits")
   " The default methods for highlighting.  Can be overridden later
   HiLink mintStatement    Statement
   HiLink mintAttribute    Function
-  HiLink mintFunction        Function
+  HiLink mintFunction     Function
+  HiLink mintTag          Function
   HiLink mintConditional    Conditional
   HiLink mintRepeat        Repeat
   HiLink mintPythonRepeat  Repeat
   HiLink mintEscape        Special
   HiLink mintOperator        Operator
-  HiLink mintComment        Comment
-  HiLink mintTodo        Todo
-  HiLink mintVariable        Number
+  HiLink mintComment         Comment
+  HiLink mintTodo            Todo
+  HiLink mintVariable        Statement
   if exists("mint_highlight_numbers")
     HiLink mintNumber    Number
   endif
