@@ -1340,25 +1340,17 @@ class PprintTreeBuilder(_TreeBuilder):
             if text:
                 if text.endswith('\n'):
                     text = text[:-1]
-                if children:
-                    self.indent()
-                    out.write('\n')
-                    out.write(self.indent_text(text))
-                    self.unindent()
-                elif len(text) > 80:
-                    self.indent()
-                    out.write('\n')
-                    out.write(self.indent_text(text))
-                    out.write('\n')
-                    self.unindent()
-                else:
-                    out.write(text)
+                self.indent()
+                out.write('\n')
+                out.write(self.indent_text(text))
+                out.write('\n')
+                self.unindent()
             if children:
                 out.write('\n')
                 for n in children:
                     self._node_to_unicode(out, n)
 
-            if children or (text and len(text) > 80):
+            if children or text:
                 out.write(self.indention)
             out.write(u'</' + tag + '>')
             if node.tail:
