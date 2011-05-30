@@ -13,6 +13,8 @@ import ast
 import htmlentitydefs
 import itertools
 import os
+import fnmatch
+import time
 from ast import Load, Store, Param
 from StringIO import StringIO
 from collections import deque
@@ -1801,6 +1803,40 @@ class Printer(ast.NodeVisitor):
         self.src.write('or')
 
 
+def all_files_by_mask(mask):
+    for root, dirs, files in os.walk('.'):
+        for basename in files:
+            if fnmatch.fnmatch(basename, mask):
+                filename = os.path.join(root, basename)
+                yield filename
+
+
+def render_templates(*templates, **kw):
+    loader = kw['loader']
+    for template_name in templates:
+        result = loader.get_template(template_name).render()
+        if result:
+            open(template_name[:-4]+'html', 'w').write(result)
+
+
+def iter_changed(interval=1):
+    mtimes = {}
+    while 1:
+        for filename in all_files_by_mask('*.mint'):
+            try:
+                mtime = os.stat(filename).st_mtime
+            except OSError:
+                continue
+            old_time = mtimes.get(filename)
+            if old_time is None:
+                mtimes[filename] = mtime
+                continue
+            elif mtime > old_time:
+                mtimes[filename] = mtime
+                yield filename
+        time.sleep(interval)
+
+
 if __name__ == '__main__':
     import datetime
     from optparse import OptionParser
@@ -1817,10 +1853,15 @@ if __name__ == '__main__':
     parser.add_option('-p', '--pprint', dest='pprint', action='store_true',
                       default=False,
                       help='Turn pretty print on.')
+    parser.add_option('-m', '--monitor', dest='monitor', action='store_true',
+                      default=False,
+                      help='Monitor current directory and subdirectories for changes in mint files. '
+                           'And render corresponding html files.')
     (options, args) = parser.parse_args()
+    loader = Loader('.', pprint=options.pprint)
     if len(args) > 0:
         template_name = args[0]
-        template = Loader('.', pprint=options.pprint).get_template(template_name)
+        template = loader.get_template(template_name)
         if options.code:
             printer = Printer()
             printer.visit(template.tree())
@@ -1838,5 +1879,15 @@ if __name__ == '__main__':
                 template.render()
                 results.append(now() - start)
             print reduce(lambda a,b: a+b, map(lambda x: x.microseconds, results))/len(results), 'microseconds'
+    elif options.monitor:
+        curdir = os.path.abspath(os.getcwd())
+        try:
+            render_templates(*all_files_by_mask('*.mint'), loader=loader)
+            print 'Monitoring for file changes...'
+            for changed_file in iter_changed():
+                print 'Changes in file: ', changed_file, datetime.datetime.now().strftime('%H:%M:%S')
+                render_templates(changed_file, loader=loader)
+        except KeyboardInterrupt:
+            pass
     else:
         print 'Try --help'
