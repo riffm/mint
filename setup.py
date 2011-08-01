@@ -1,15 +1,15 @@
-#!/usr/bin/env python
-
 from distutils.core import setup
+
+version = '0.5'
 
 setup(
     name='mint',
-    version='0.4',
-    author='Tim Perevezentsev',
-    url='http://github.com/riffm/mint',
-    author_email='riffm2005@gmail.com',
-    packages=['mint'],
-    license = 'LICENSE.txt',
+    version=version,
     description='Simple indetion based template engine',
     long_description=open('README.rst').read(),
+    py_modules=['mint'],
+    license='MIT',
+    author='Tim Perevezentsev',
+    author_email='riffm2005@gmail.com',
+    url='http://github.com/riffm/mint'
 )
