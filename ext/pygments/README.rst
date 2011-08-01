@@ -17,7 +17,7 @@ schemes::
     from pygments.formatters import HtmlFormatter
 
     code = """
-        {{ html5 }}
+        {{ utils.doctype.html5 }}
         @html
             @head
             @body
