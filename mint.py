@@ -1877,7 +1877,8 @@ if __name__ == '__main__':
                 start = now()
                 template.render()
                 results.append(now() - start)
-            print reduce(lambda a,b: a+b, map(lambda x: x.microseconds, results))/len(results), 'microseconds'
+            print 'Total time (%d repeats): ' % options.repeat, reduce(lambda a,b: a+b, results)
+            print 'Average:                 ', reduce(lambda a,b: a+b, results)/len(results)
     elif options.monitor:
         curdir = os.path.abspath(os.getcwd())
         try:
