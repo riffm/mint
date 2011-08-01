@@ -28,6 +28,8 @@ mint
 
 - utils_
 
+- CLI_
+
 
 .. _about:
 
@@ -533,5 +535,33 @@ Html helpers
 - ``utils.script``
 - ``utils.scripts``
 - ``utils.link``
+
+
+.. _CLI:
+
+----------------------
+Command Line Interface
+----------------------
+
+``mint`` has a CLI. To list available options use ``--help`` flag::
+
+    % python -m mint --help
+    Usage: mint.py [options] [template]
+
+    Options:
+      -h, --help        show this help message and exit
+      -c, --code        Show only python code of compiled template.
+      -t, --tokenize    Show tokens stream of template.
+      -r N, --repeat=N  Try to render template N times and display average time
+                        result.
+      -p, --pprint      Turn pretty print on.
+      -m, --monitor     Monitor current directory and subdirectories for changes
+                        in mint files. And render corresponding html files.
+
+CLI works in two modes:
+
+- rendering
+- monitoring
+
 
 That's all folks!
