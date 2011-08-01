@@ -68,7 +68,7 @@ but some concepts were redisigned for simplification and adoptation to python wo
 
 
 Home page:     https://github.com/riffm/mint
-Issue tracker: https://github.com/riffm/mint
+Issue tracker: https://github.com/riffm/mint/issues
 
 .. _usage:
 
