@@ -3,10 +3,10 @@
 import os
 import glob
 import unittest
-import mint
 import types
 from StringIO import StringIO
 
+import mint
 
 class TagsAndText(unittest.TestCase):
 
@@ -40,12 +40,12 @@ class TagsAndText(unittest.TestCase):
         'Nested tags more levels'
         self.assertEqual(mint.Template('@tag\n'
                                        '    @tag2\n'
-                                       '        @tag3').render(), 
+                                       '        @tag3').render(),
                          '<tag><tag2><tag3></tag3></tag2></tag>')
 
     def test_nested_tags3(self):
         'Nested tags shortcuts'
-        self.assertEqual(mint.Template('@tag @tag2 @tag3').render(), 
+        self.assertEqual(mint.Template('@tag @tag2 @tag3').render(),
                          '<tag><tag2><tag3></tag3></tag2></tag>')
 
     def test_nested_tags4(self):
@@ -58,12 +58,12 @@ class TagsAndText(unittest.TestCase):
     def test_text_content(self):
         'Tag with text content'
         self.assertEqual(mint.Template('@tag\n'
-                                       '    text content').render(), 
+                                       '    text content').render(),
                          '<tag>text content\n</tag>')
 
     def test_text_content2(self):
         'Tag with text content shortcut'
-        self.assertEqual(mint.Template('@tag text content').render(), 
+        self.assertEqual(mint.Template('@tag text content').render(),
                          '<tag>text content\n</tag>')
 
     def test_text_content3(self):
@@ -163,19 +163,19 @@ class TagsAndText(unittest.TestCase):
 
     def test_escaping(self):
         'Text value escaping'
-        self.assertEqual(mint.Template('text < > \' " &').render(), 
+        self.assertEqual(mint.Template('text < > \' " &').render(),
                          'text &lt; &gt; &#39; &quot; &amp;\n')
 
     def test_escaping2(self):
         'Tag attr value escaping'
-        self.assertEqual(mint.Template('@tag.attr(text < > \' " &)').render(), 
+        self.assertEqual(mint.Template('@tag.attr(text < > \' " &)').render(),
                          '<tag attr="text &lt; &gt; &#39; &quot; &amp;"></tag>')
 
     def test_escaping3(self):
         'Markup object value'
         self.assertEqual(mint.Template('@tag\n'
                                        '    text <tag attr="&" />\n'
-                                       '    {{ value }}').render(value=mint.Markup('<tag attr="&amp;" />')), 
+                                       '    {{ value }}').render(value=mint.Markup('<tag attr="&amp;" />')),
                          '<tag>text &lt;tag attr=&quot;&amp;&quot; /&gt;\n<tag attr="&amp;" />\n</tag>')
 
     def test_escaping4(self):
@@ -206,12 +206,12 @@ class Tokenizer(unittest.TestCase):
 
     def test_tokens(self):
         'Empty string'
-        self.assertEqual(list(mint.tokenizer(StringIO())), 
+        self.assertEqual(list(mint.tokenizer(StringIO())),
                          [(mint.TOKEN_EOF, 'EOF', 1, 0)])
 
     def test_tokens2(self):
         'Simple tokens'
-        self.assertEqual(list(mint.tokenizer(StringIO('@@.@+()[]:;.,-+{{}}'))), 
+        self.assertEqual(list(mint.tokenizer(StringIO('@@.@+()[]:;.,-+{{}}'))),
                          [(mint.TOKEN_TAG_START, '@', 1, 1),
                           (mint.TOKEN_TAG_ATTR_SET, '@.', 1, 2),
                           (mint.TOKEN_TAG_ATTR_APPEND, '@+', 1, 4),
@@ -231,7 +231,7 @@ class Tokenizer(unittest.TestCase):
 
     def test_tokens3(self):
         'Special tokens'
-        self.assertEqual(list(mint.tokenizer(StringIO('#base: #if #elif #else:#def #for #'))), 
+        self.assertEqual(list(mint.tokenizer(StringIO('#base: #if #elif #else:#def #for #'))),
                          [(mint.TOKEN_BASE_TEMPLATE, '#base: ', 1, 1),
                           (mint.TOKEN_STATEMENT_IF, '#if ', 1, 8),
                           (mint.TOKEN_STATEMENT_ELIF, '#elif ', 1, 12),
@@ -244,7 +244,7 @@ class Tokenizer(unittest.TestCase):
 
     def test_tokens4(self):
         'Two tokens in a row'
-        self.assertEqual(list(mint.tokenizer(StringIO('{{{{#if #if '))), 
+        self.assertEqual(list(mint.tokenizer(StringIO('{{{{#if #if '))),
                          [(mint.TOKEN_EXPRESSION_START, '{{', 1, 1),
                           (mint.TOKEN_EXPRESSION_START, '{{', 1, 3),
                           (mint.TOKEN_STATEMENT_IF, '#if ', 1, 5),
@@ -254,7 +254,7 @@ class Tokenizer(unittest.TestCase):
 
     def test_tokens5(self):
         'Special tokens (js)'
-        self.assertEqual(list(mint.tokenizer(StringIO('#function #else if '))), 
+        self.assertEqual(list(mint.tokenizer(StringIO('#function #else if '))),
                          [(mint.TOKEN_SLOT_DEF, '#function ', 1, 1),
                           (mint.TOKEN_STATEMENT_ELIF, '#else if ', 1, 11),
                           (mint.TOKEN_NEWLINE, '\n', 1, 20),
@@ -290,7 +290,7 @@ class Tokenizer(unittest.TestCase):
         'Indent tokens'
         self.assertEqual(list(mint.tokenizer(StringIO('    \n'
                                                       '        \n'
-                                                      '    '))), 
+                                                      '    '))),
                          [(mint.TOKEN_INDENT, '    ', 1, 1),
                           (mint.TOKEN_NEWLINE, '\n', 1, 5),
                           (mint.TOKEN_INDENT, '    ', 2, 5),
@@ -303,7 +303,7 @@ class Tokenizer(unittest.TestCase):
     def test_indent4(self):
         'Mixed indent'
         self.assertEqual(list(mint.tokenizer(StringIO('   \n'
-                                                      '       '))), 
+                                                      '       '))),
                          [(mint.TOKEN_INDENT, '   ', 1, 1),
                           (mint.TOKEN_NEWLINE, '\n', 1, 4),
                           (mint.TOKEN_INDENT, '   ', 2, 4),
@@ -316,7 +316,7 @@ class Tokenizer(unittest.TestCase):
     def test_indent5(self):
         'More mixed indent'
         self.assertEqual(list(mint.tokenizer(StringIO('    \n'
-                                                      '   '))), 
+                                                      '   '))),
                          [(mint.TOKEN_INDENT, '    ', 1, 1),
                           (mint.TOKEN_NEWLINE, '\n', 1, 5),
                           (mint.TOKEN_UNINDENT, '    ', 1, 5),
@@ -329,7 +329,7 @@ class Tokenizer(unittest.TestCase):
         self.assertEqual(list(mint.tokenizer(StringIO('\n'
                                                       '    \n'
                                                       '        \n'
-                                                      '    '))), 
+                                                      '    '))),
                          [(mint.TOKEN_NEWLINE, '\n', 1, 1),
                           (mint.TOKEN_INDENT, '    ', 2, 1),
                           (mint.TOKEN_NEWLINE, '\n', 2, 5),
@@ -345,7 +345,7 @@ class Tokenizer(unittest.TestCase):
         self.assertEqual(list(mint.tokenizer(StringIO('\n'
                                                       '    \n'
                                                       '            \n'
-                                                      '    '))), 
+                                                      '    '))),
                          [(mint.TOKEN_NEWLINE, '\n', 1, 1),
                           (mint.TOKEN_INDENT, '    ', 2, 1),
                           (mint.TOKEN_NEWLINE, '\n', 2, 5),
@@ -409,12 +409,12 @@ class Parser(unittest.TestCase):
         tree = self.get_mint_tree('@tag.attr(value)')
         self.assertEqual(tree,
                          mint.MintTemplate(body=[
-                             mint.TagNode('tag', 
-                                           attrs=[mint.TagAttrNode('attr', 
-                                                                   value=[mint.TextNode('value', 
-                                                                                        lineno=1, 
+                             mint.TagNode('tag',
+                                           attrs=[mint.TagAttrNode('attr',
+                                                                   value=[mint.TextNode('value',
+                                                                                        lineno=1,
                                                                                         col_offset=11)],
-                                                                    lineno=1, col_offset=6)], 
+                                                                    lineno=1, col_offset=6)],
                                            lineno=1, col_offset=1)]))
 
     def test_tag_node3(self):
@@ -423,10 +423,10 @@ class Parser(unittest.TestCase):
                                   '    text value')
         self.assertEqual(tree,
                          mint.MintTemplate(body=[
-                             mint.TagNode('tag', 
-                                           attrs=[mint.TagAttrNode('attr', 
-                                                                   value=[mint.TextNode('value', 
-                                                                                        lineno=1, 
+                             mint.TagNode('tag',
+                                           attrs=[mint.TagAttrNode('attr',
+                                                                   value=[mint.TextNode('value',
+                                                                                        lineno=1,
                                                                                         col_offset=11)],
                                                                     lineno=1, col_offset=6)],
                                            body=[mint.TextNode('text value\n', lineno=2, col_offset=5)],
@@ -459,7 +459,7 @@ class Parser(unittest.TestCase):
         self.assertEqual(tree,
                          mint.MintTemplate(body=[
                              mint.TagNode('tag', attrs=[],
-                                           body=[mint.TagNode('tag2', attrs=[], 
+                                           body=[mint.TagNode('tag2', attrs=[],
                                                               body=[mint.TextNode('text value\n',
                                                                                   lineno=1, col_offset=12)],
                                                               lineno=1, col_offset=6)],
@@ -470,12 +470,12 @@ class Parser(unittest.TestCase):
         tree = self.get_mint_tree('@tag.attr({{ expression }})')
         self.assertEqual(tree,
                          mint.MintTemplate(body=[
-                             mint.TagNode('tag', 
-                                           attrs=[mint.TagAttrNode('attr', 
-                                                                   value=[mint.ExpressionNode('expression', 
-                                                                                              lineno=1, 
+                             mint.TagNode('tag',
+                                           attrs=[mint.TagAttrNode('attr',
+                                                                   value=[mint.ExpressionNode('expression',
+                                                                                              lineno=1,
                                                                                               col_offset=11)],
-                                                                   lineno=1, col_offset=6)], 
+                                                                   lineno=1, col_offset=6)],
                                            lineno=1, col_offset=1)]))
 
     def test_if_node(self):
@@ -506,7 +506,7 @@ class Parser(unittest.TestCase):
                              mint.IfStmtNode('#if statement',
                                              body=[mint.TextNode('text value\n', lineno=2, col_offset=5)],
                                              orelse=[mint.ElseStmtNode(body=[
-                                                 mint.TextNode('another text value\n', 
+                                                 mint.TextNode('another text value\n',
                                                                lineno=4, col_offset=5)],
                                                                        lineno=3, col_offset=1)],
                                              lineno=1, col_offset=1)]))
