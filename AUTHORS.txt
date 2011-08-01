@@ -1,0 +1,7 @@
+Lead Developer:
+
+- Tim Perevezentsev <riffm2005@gmail.com>
+
+Contributor(s):
+
+- Eugene Van den Bulke <eugene.vandenbulke@gmail.com>

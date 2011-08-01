@@ -5,9 +5,11 @@ from distutils.core import setup
 setup(
     name='mint',
     version='0.4',
-    description='Simple indetion based template engine',
     author='Tim Perevezentsev',
-    author_email='riffm2005@gmail.com',
-    py_modules=['mint'],
     url='http://github.com/riffm/mint',
+    author_email='riffm2005@gmail.com',
+    packages=['mint'],
+    license = 'LICENSE.txt',
+    description='Simple indetion based template engine',
+    long_description=open('README.rst').read(),
 )
