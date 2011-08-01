@@ -28,6 +28,8 @@ mint
 
 - utils_
 
+- CLI_
+
 
 .. _about:
 
@@ -38,7 +40,7 @@ about
 **mint** - is small, fast and easy to use (x)html templates engine.
 Implemented with python language.
 
-Why to use **mint**?:
+Why use **mint**?:
 
 single python module
     You can copy ``mint.py`` to your project package and use it.
@@ -48,22 +50,25 @@ minimalistic syntax
     indent based syntax.
 
 works fast
-    **mint** uses ``ast`` python module from standard library 
-    (since python2.6, thank you Armin and co). So all templates compiles to optimized
-    python byte code (during first call) which works fast.
+    **mint** uses ``ast`` python module from standard library
+    (since python2.6, thank you Armin and co). So all templates compiles to
+    optimized python byte code (during first call) which works fast.
 
 smart
     **mint** knows about (x)html tags and attributes,
-    so you get smart escaping. (There is a plan to implement html 
+    so you get smart escaping. (There is a plan to implement html
     validation during rendering)
 
-not standing on your way
-    **mint** does't hide exceptions like some other template engines, and shows line
-    in your template file where exception was raised
+not standing in your way
+    **mint** does't hide exceptions like some other template engines, and
+    shows line in your template file where exception was raised
 
 Template engine was inspired by haml (a template engine written in ruby),
 but some concepts were redisigned for simplification and adoptation to python world.
 
+
+Home page:     https://github.com/riffm/mint
+Issue tracker: https://github.com/riffm/mint/issues
 
 .. _usage:
 
@@ -71,12 +76,12 @@ but some concepts were redisigned for simplification and adoptation to python wo
 usage
 -----
 
-API is simple::
+Simple API::
 
     >>> import mint
     >>> loader = mint.Loader('./templates', cache=True)
     >>> namespace = dict(a='a', b='b')
-    >>> result = loder.get_template('index.mint').render(**namespace)
+    >>> result = loader.get_template('index.mint').render(**namespace)
 
 ``mint.Loader`` accepts names of directories and then search for template files
 by name provided in ``get_template(name)`` call.
@@ -87,7 +92,7 @@ by name provided in ``get_template(name)`` call.
 syntax
 ------
 
-**mint** syntax is based on indention, so you see document structure and 
+**mint** syntax is based on indention, so you see the document structure and
 update document fast. You can move blocks of code and do not search for
 begining of parent tag and where it ends.
 
@@ -158,7 +163,7 @@ Note that **mint** knows about selfclosed html tags.
 Why do not use python dictionary declaration syntax instead?
 Something like ``{alt:"", src:"/img/my_picture.png"}``
 
-Because it is overloaded for html templating. "Chained-methods-call" like 
+Because it is overloaded for html templating. "Chained-methods-call" like
 syntax uses less chars to type.
 
 **mint** alows to set/append value of tag attribute somewhere inside tag::
@@ -233,7 +238,7 @@ implements ``__html__`` method (this is something like convention). To insert
 html inside templates you need to mark your python variables with
 ``mint.Markup`` inside your python code.
 
-In previous example if ``doc.body`` has html we need attribute ``body`` to return 
+In previous example if ``doc.body`` has html we need attribute ``body`` to return
 ``mint.Markup(html_string)``. And that ``html_string`` will be inserted in template
 without escaping. That is the preferred way to insert markup inside html template.
 
@@ -324,7 +329,7 @@ to get::
     <!-- In this div we provide content, yours C.O. -->
     <div id="content"></div>
 
-Sometimes you need to use special tokens in text, so if a line starts with 
+Sometimes you need to use special tokens in text, so if a line starts with
 token ``\`` line is not interpreted by **mint**::
 
     @p.class(title) Here we have title
@@ -355,11 +360,11 @@ Remember rule #1: This records::
 
     @div.id(1) @div.id(2) @div.id(3)
 
-    @div.id(1) 
+    @div.id(1)
         @div.id(2) @div.id(3)
 
-    @div.id(1) 
-        @div.id(2) 
+    @div.id(1)
+        @div.id(2)
             @div.id(3)
 
 are the same.
@@ -419,8 +424,8 @@ slot implementation::
 
 It is simple and powerful concept.
 
-Slots are python functions, so they see all global variables passed to template and have 
-own scope. This is very handy, because sometimes people have problems with such things 
+Slots are python functions, so they see all global variables passed to template and have
+own scope. This is very handy, because sometimes people have problems with such things
 in other templates engines.
 
 For example we need a block inside ``for`` loop::
@@ -490,7 +495,7 @@ example with ``for`` loop::
     >>> loop_slot(item)
     Markup(u'<p class="title">...</p><img alt="" src="..." />')
 
-But sometimes slots needs global variables, you must provide such variables 
+But sometimes slots needs global variables, you must provide such variables
 with kwargs in method ``slot(name, **globals)`` of ``Template`` object.
 
 
@@ -500,7 +505,7 @@ with kwargs in method ``slot(name, **globals)`` of ``Template`` object.
 utils
 -----
 
-**mint** provides global variable ``utils`` which contains useful constants and helper 
+**mint** provides global variable ``utils`` which contains useful constants and helper
 functions.
 
 Doctype declarations
@@ -517,7 +522,7 @@ Example of usage::
 
 Class ``mint.Markup`` is ``utils.markup`` (this is replacement for hack ``{{ var|safe }}``)
 
-``utils.loop`` is helper function to use with ``for`` statement. It takes iterable 
+``utils.loop`` is helper function to use with ``for`` statement. It takes iterable
 object and returns tuple of item and special object that consist of useful info for each
 iteration::
 
@@ -527,5 +532,39 @@ iteration::
 
 In previous example ``l.cycle('one', 'two', 'three')`` will return one of values provided
 in sequence. It is handy to colorize tables.
+
+Html helpers
+
+- ``utils.script``
+- ``utils.scripts``
+- ``utils.link``
+
+
+.. _CLI:
+
+----------------------
+Command Line Interface
+----------------------
+
+``mint`` has a CLI. To list available options use ``--help`` flag::
+
+    % python -m mint --help
+    Usage: mint.py [options] [template]
+
+    Options:
+      -h, --help        show this help message and exit
+      -c, --code        Show only python code of compiled template.
+      -t, --tokenize    Show tokens stream of template.
+      -r N, --repeat=N  Try to render template N times and display average time
+                        result.
+      -p, --pprint      Turn pretty print on.
+      -m, --monitor     Monitor current directory and subdirectories for changes
+                        in mint files. And render corresponding html files.
+
+CLI works in two modes:
+
+- rendering
+- monitoring
+
 
 That's all folks!

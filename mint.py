@@ -2,22 +2,23 @@
 
 '''
 mint - small, fast and simple template engine.
-Inspired by haml.
 '''
 
-import weakref
-import logging
-import mmap
+import os
 import re
 import ast
-import htmlentitydefs
+import mmap
+import time
+import fnmatch
+import logging
+import weakref
 import itertools
-import os
+import htmlentitydefs
 from ast import Load, Store, Param
 from StringIO import StringIO
-from collections import deque
-from xml.etree.ElementTree import TreeBuilder, Element
 from functools import partial
+from collections import deque
+from xml.etree.ElementTree import TreeBuilder as _TreeBuilder, Element
 
 ############# LEXER
 
@@ -1244,10 +1245,10 @@ class TemplateNotFound(Exception):
     pass
 
 
-class RootTreeBuilder(TreeBuilder):
+class TreeBuilder(_TreeBuilder):
     'Tree with root element already set'
     def __init__(self, *args, **kwargs):
-        TreeBuilder.__init__(self, *args, **kwargs)
+        _TreeBuilder.__init__(self, *args, **kwargs)
         self.start('root', {})
 
     def to_unicode(self):
@@ -1290,20 +1291,104 @@ class RootTreeBuilder(TreeBuilder):
                 out.write(node.tail)
 
 
-def new_tree():
-    tree = RootTreeBuilder()
-    return tree, tree.start, tree.end, tree.data
+class PprintTreeBuilder(_TreeBuilder):
+    'Tree with root element already set'
+    def __init__(self, *args, **kwargs):
+        _TreeBuilder.__init__(self, *args, **kwargs)
+        self.start('root', {})
+        self._level = -1
+
+    @property
+    def indention(self):
+        return self._level > 0 and '  '*self._level or ''
+
+    def to_unicode(self):
+        class dummy: pass
+        data = []
+        out = dummy()
+        out.write = data.append
+        # out - fast writable object
+        self.end('root')
+        root = self.close()
+        if root.text:
+            out.write(self.indent_text(root.text))
+            out.write('\n')
+        for node in root:
+            self._node_to_unicode(out, node)
+        if root.tail:
+            out.write(self.indent_text(root.tail))
+        return Markup(u''.join(data))
+
+    def _node_to_unicode(self, out, node):
+        #NOTE: all data must be escaped during tree building
+        self.indent()
+        tag = node.tag
+        items = node.items()
+        selfclosed = ['link', 'input', 'br', 'hr', 'img', 'meta']
+        children = list(node)
+        text = node.text
+        tail = node.tail
+        out.write(self.indention)
+        out.write(u'<' + tag)
+        if items:
+            items.sort() # lexical order
+            for k, v in items:
+                out.write(u' %s="%s"' % (k, v))
+        if tag in selfclosed:
+            out.write(u' />')
+        else:
+            out.write(u'>')
+            if text:
+                if text.endswith('\n'):
+                    text = text[:-1]
+                self.indent()
+                out.write('\n')
+                out.write(self.indent_text(text))
+                out.write('\n')
+                self.unindent()
+            if children:
+                out.write('\n')
+                for n in children:
+                    self._node_to_unicode(out, n)
+
+            if children or text:
+                out.write(self.indention)
+            out.write(u'</' + tag + '>')
+            if node.tail:
+                out.write('\n')
+                tail = node.tail
+                if tail.endswith('\n'):
+                    tail = tail[:-1]
+                out.write(self.indent_text(tail))
+        out.write('\n')
+        self.unindent()
+
+    def indent_text(self, text):
+        return '\n'.join([self.indention+t for t in text.split('\n')])
+
+    def indent(self):
+        self._level += 1
+    def unindent(self):
+        self._level -= 1
+
+
+def new_tree(pprint):
+    def wrapper():
+        tree = pprint and PprintTreeBuilder() or TreeBuilder()
+        return tree, tree.start, tree.end, tree.data
+    return wrapper
 
 
 class Template(object):
 
-    def __init__(self, source, filename=None, loader=None, globals=None):
+    def __init__(self, source, filename=None, loader=None, globals=None, pprint=False):
         assert source or filename, 'Please provide source code or filename'
         self.source = source
         self.filename = filename if filename else '<string>'
         self._loader = loader
         self.compiled_code = compile(self.tree(), self.filename, 'exec')
         self.globals = globals or {}
+        self.pprint = pprint
 
     def tree(self, slots=None):
         slots = slots or {}
@@ -1337,7 +1422,7 @@ class Template(object):
         ns = {
             'utils':utils,
             ESCAPE_HELLPER:escape,
-            TREE_FACTORY:new_tree,
+            TREE_FACTORY:new_tree(self.pprint),
         }
         ns.update(self.globals)
         ns.update(kwargs)
@@ -1349,7 +1434,7 @@ class Template(object):
         ns = {
             'utils':utils,
             ESCAPE_HELLPER:escape,
-            TREE_FACTORY:new_tree,
+            TREE_FACTORY:new_tree(self.pprint),
         }
         ns.update(self.globals)
         ns.update(kwargs)
@@ -1367,6 +1452,7 @@ class Loader(object):
         self.cache = kwargs.get('cache', False)
         self._templates_cache = {}
         self.globals = kwargs.get('globals', {})
+        self.pprint = kwargs.get('pprint', 0)
 
     def get_template(self, template):
         if template in self._templates_cache:
@@ -1376,7 +1462,7 @@ class Loader(object):
             if os.path.exists(location) and os.path.isfile(location):
                 with open(location, 'r') as f:
                     tmpl = Template(source=f.read(), filename=f.name,
-                                    loader=self, globals=self.globals)
+                                    loader=self, globals=self.globals, pprint=self.pprint)
                     if self.cache:
                         self._templates_cache[template] = tmpl
                     return tmpl
@@ -1456,6 +1542,25 @@ class utils(object):
     @staticmethod
     def entity(char):
         return Markup(CHARS_ENTITIES.get(char, char))
+
+    @staticmethod
+    def script(src=None, data=None, type='text/javascript'):
+        if src:
+            return Markup('<script type="%s" src="%s"></script>' % (type, src))
+        elif data:
+            return Markup('<script type="%s">%s</script>' % (type, data))
+        return ''
+
+    @staticmethod
+    def scripts(*args, **kwargs):
+        result = []
+        for name in args:
+            result.append(utils.script(name, **kwargs))
+        return ''.join(result)
+
+    @staticmethod
+    def link(href, rel='stylesheet', type='text/css'):
+        return Markup('<link rel="%s" type="%s" href="%s" />' % (rel, type, href))
 
 
 class Looper:
@@ -1697,11 +1802,92 @@ class Printer(ast.NodeVisitor):
         self.src.write('or')
 
 
+def all_files_by_mask(mask):
+    for root, dirs, files in os.walk('.'):
+        for basename in files:
+            if fnmatch.fnmatch(basename, mask):
+                filename = os.path.join(root, basename)
+                yield filename
+
+
+def render_templates(*templates, **kw):
+    loader = kw['loader']
+    for template_name in templates:
+        result = loader.get_template(template_name).render()
+        if result:
+            open(template_name[:-4]+'html', 'w').write(result)
+
+
+def iter_changed(interval=1):
+    mtimes = {}
+    while 1:
+        for filename in all_files_by_mask('*.mint'):
+            try:
+                mtime = os.stat(filename).st_mtime
+            except OSError:
+                continue
+            old_time = mtimes.get(filename)
+            if old_time is None:
+                mtimes[filename] = mtime
+                continue
+            elif mtime > old_time:
+                mtimes[filename] = mtime
+                yield filename
+        time.sleep(interval)
+
+
 if __name__ == '__main__':
-    from sys import argv
     import datetime
-    template_name = argv[1]
-    template = Loader('.').get_template(template_name)
-    printer = Printer()
-    printer.visit(template.tree())
-    print printer.src.getvalue()
+    from optparse import OptionParser
+    parser = OptionParser()
+    parser.add_option('-c', '--code', dest='code', action='store_true',
+                      default=False,
+                      help='Show only python code of compiled template.')
+    parser.add_option('-t', '--tokenize', dest='tokenize', action='store_true',
+                      default=False,
+                      help='Show tokens stream of template.')
+    parser.add_option('-r', '--repeat', dest='repeat',
+                      default=0, metavar='N', type='int',
+                      help='Try to render template N times and display average time result.')
+    parser.add_option('-p', '--pprint', dest='pprint', action='store_true',
+                      default=False,
+                      help='Turn pretty print on.')
+    parser.add_option('-m', '--monitor', dest='monitor', action='store_true',
+                      default=False,
+                      help='Monitor current directory and subdirectories for changes in mint files. '
+                           'And render corresponding html files.')
+    (options, args) = parser.parse_args()
+    loader = Loader('.', pprint=options.pprint)
+    if len(args) > 0:
+        template_name = args[0]
+        template = loader.get_template(template_name)
+        if options.code:
+            printer = Printer()
+            printer.visit(template.tree())
+            print printer.src.getvalue()
+        elif options.tokenize:
+            for t in tokenizer(StringIO(template.source)):
+                print t
+        else:
+            print template.render()
+        if options.repeat > 0:
+            now = datetime.datetime.now
+            results = []
+            for i in range(options.repeat):
+                start = now()
+                template.render()
+                results.append(now() - start)
+            print 'Total time (%d repeats): ' % options.repeat, reduce(lambda a,b: a+b, results)
+            print 'Average:                 ', reduce(lambda a,b: a+b, results)/len(results)
+    elif options.monitor:
+        curdir = os.path.abspath(os.getcwd())
+        try:
+            render_templates(*all_files_by_mask('*.mint'), loader=loader)
+            print 'Monitoring for file changes...'
+            for changed_file in iter_changed():
+                print 'Changes in file: ', changed_file, datetime.datetime.now().strftime('%H:%M:%S')
+                render_templates(changed_file, loader=loader)
+        except KeyboardInterrupt:
+            pass
+    else:
+        print 'Try --help'
