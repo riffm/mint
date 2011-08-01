@@ -66,6 +66,10 @@ not standing in your way
 Template engine was inspired by haml (a template engine written in ruby),
 but some concepts were redisigned for simplification and adoptation to python world.
 
+
+Home page:     https://github.com/riffm/mint
+Issue tracker: https://github.com/riffm/mint
+
 .. _usage:
 
 -----
