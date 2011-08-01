@@ -5,19 +5,19 @@ mint - small, fast and simple template engine.
 Inspired by haml.
 '''
 
-import weakref
-import logging
-import mmap
+import os
 import re
 import ast
-import htmlentitydefs
+import mmap
+import weakref
+import logging
 import itertools
-import os
+import htmlentitydefs
 from ast import Load, Store, Param
 from StringIO import StringIO
+from functools import partial
 from collections import deque
 from xml.etree.ElementTree import TreeBuilder, Element
-from functools import partial
 
 ############# LEXER
 
