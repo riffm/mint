@@ -6,7 +6,7 @@ setup(
     name='mint',
     version=version,
     description='Simple indetion based template engine',
-    long_description=open('README.rst').read(),
+    long_description=open('README.rst').read()+'\n\n'+open('CHANGELOG').read(),
     py_modules=['mint'],
     license='MIT',
     author='Tim Perevezentsev',
