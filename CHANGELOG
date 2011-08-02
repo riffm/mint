@@ -1,0 +1,40 @@
+Changelog
+=========
+
+v0.5
+----
+* Smart indent. Tokenizer sets `indent level` for whole template equal indent
+  level of first indented line (as in python)
+
+* Mint nodes now based on `ast.AST` and to transform `mint` tree to `python`
+  tree we use `ast.NodeTransformer` subclass. This feature allows us write
+  transformers for other languages (js =)
+
+* Added `pretty printing` of html result. Default indention is two spaces and
+  is unchangable
+
+* Updated vim highlight for mint files
+
+* Added html helpers `utils.script`, `utils.link` and `utils.scripts`
+
+* New `CLI` interface. Some features::
+
+  * shows result python code listing for mint template
+
+  * shows tokens stream for mint template
+
+  * renders templates and prints result to stdout (note: if no outer variables
+    used)
+
+  * measures average rendering time for template (note: if no outer variables
+    used)
+
+  * `monitoring` feature
+
+* Fixes
+
+
+v0.4.4
+------
+
+Working implementation
