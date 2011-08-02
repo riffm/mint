@@ -1,8 +1,10 @@
-Changelog
-=========
+---------
+changelog
+---------
 
 v0.5
 ----
+
 * Smart indent. Tokenizer sets `indent level` for whole template equal indent
   level of first indented line (as in python)
 
@@ -17,7 +19,7 @@ v0.5
 
 * Added html helpers `utils.script`, `utils.link` and `utils.scripts`
 
-* New `CLI` interface. Some features::
+* New `CLI` interface. Some features
 
   * shows result python code listing for mint template
 
