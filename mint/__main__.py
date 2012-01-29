@@ -4,7 +4,8 @@ import time
 import fnmatch
 from cStringIO import StringIO
 
-from mint import Loader, tokenizer
+from .lexer import tokenizer
+from .template import Loader
 from .ast_printer import Printer
 
 
