@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 '''
-mint - small, fast and simple template engine.
+mint - small, simple template engine.
 '''
 
 import os
@@ -18,7 +18,6 @@ from functools import partial
 from collections import deque
 from xml.etree.ElementTree import TreeBuilder as _TreeBuilder
 
-############# LEXER
 
 class BaseToken(object):
     pass
@@ -259,7 +258,6 @@ def indent_tokenizer(tokens_stream):
 def tokenizer(fileobj):
     return indent_tokenizer(base_tokenizer(fileobj))
 
-############# LEXER END
 
 UNSAFE_CHARS = '&<>"'
 CHARS_ENTITIES = dict([(v, '&%s;' % k) for k, v in htmlentitydefs.entitydefs.items()])
