@@ -19,13 +19,7 @@ from collections import deque
 from xml.etree.ElementTree import TreeBuilder as _TreeBuilder
 
 
-class BaseToken(object):
-    pass
-
-class TokenWrapper(BaseToken):
-    '''
-    Objects of this class reprezents tokens
-    '''
+class TokenWrapper(object):
 
     def __init__(self, token, value=None, regex_str=None):
         assert value or regex_str, 'Provide token text value or regex'
@@ -41,26 +35,26 @@ class TokenWrapper(BaseToken):
     __repr__ = __str__
 
 
-class TextToken(BaseToken):
+class TextToken(object):
     'Special token for text'
     def __str__(self):
         return 'text'
     __repr__ = __str__
 
 
-class TokenIndent(BaseToken):
+class TokenIndent(object):
     def __str__(self):
         return 'indent'
     __repr__ = __str__
 
 
-class TokenUnindent(BaseToken):
+class TokenUnindent(object):
     def __str__(self):
         return 'unindent'
     __repr__ = __str__
 
 
-class EOF(BaseToken):
+class EOF(object):
     'Special token'
     def __str__(self):
         return 'eof'
