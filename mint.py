@@ -10,15 +10,13 @@ import ast
 import mmap
 import time
 import fnmatch
-import logging
-import weakref
 import itertools
 import htmlentitydefs
-from ast import Load, Store, Param
+from ast import Load, Store
 from StringIO import StringIO
 from functools import partial
 from collections import deque
-from xml.etree.ElementTree import TreeBuilder as _TreeBuilder, Element
+from xml.etree.ElementTree import TreeBuilder as _TreeBuilder
 
 ############# LEXER
 
