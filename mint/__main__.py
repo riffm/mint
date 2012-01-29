@@ -4,7 +4,8 @@ import time
 import fnmatch
 from cStringIO import StringIO
 
-from mint import Loader, tokenizer, Printer
+from mint import Loader, tokenizer
+from .ast_printer import Printer
 
 
 def all_files_by_mask(mask):
