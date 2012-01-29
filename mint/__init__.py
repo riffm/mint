@@ -8,8 +8,6 @@ import os
 import re
 import ast
 import mmap
-import time
-import fnmatch
 import itertools
 from ast import Load, Store
 from StringIO import StringIO
@@ -17,6 +15,7 @@ from functools import partial
 from collections import deque
 from xml.etree.ElementTree import TreeBuilder as _TreeBuilder
 
+from . import utils
 from .nodes import *
 from .escape import escape, Markup
 
@@ -1219,86 +1218,6 @@ class Loader(object):
 
 
 
-class utils(object):
-
-    class doctype:
-        html_strict = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" '
-                                '"http://www.w3.org/TR/html4/strict.dtd">')
-        html_transitional = Markup('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 '
-                          'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">')
-        xhtml_strict = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" '
-                                 '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">')
-        xhtml_transitional = Markup('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 '
-        'Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">')
-        html5 = Markup('<!DOCTYPE html>')
-
-    markup = Markup
-
-    @staticmethod
-    def loop(iterable):
-        return Looper(iterable)
-
-    @staticmethod
-    def entity(char):
-        return Markup(CHARS_ENTITIES.get(char, char))
-
-    @staticmethod
-    def script(src=None, data=None, type='text/javascript'):
-        if src:
-            return Markup('<script type="%s" src="%s"></script>' % (type, src))
-        elif data:
-            return Markup('<script type="%s">%s</script>' % (type, data))
-        return ''
-
-    @staticmethod
-    def scripts(*args, **kwargs):
-        result = []
-        for name in args:
-            result.append(utils.script(name, **kwargs))
-        return ''.join(result)
-
-    @staticmethod
-    def link(href, rel='stylesheet', type='text/css'):
-        return Markup('<link rel="%s" type="%s" href="%s" />' % (rel, type, href))
-
-
-class Looper:
-    'Cool class taken from PPA project'
-    class _Item:
-        def __init__(self, index, has_next):
-            self.index = index
-            self.has_next = has_next
-            self.last = not has_next
-            self.first = not index
-        @property
-        def odd(self):
-            return self.index % 2
-        @property
-        def even(self):
-            return not self.index % 2
-        def cycle(self, *args):
-            'Magic method (adopted ;)'
-            return args[self.index % len(args)]
-
-    def __init__(self, iterable):
-        self._iterator = iter(iterable)
-
-    def _shift(self):
-        try:
-            self._next = self._iterator.next()
-        except StopIteration:
-            self._has_next = False
-        else:
-            self._has_next = True
-
-    def __iter__(self):
-        self._shift()
-        index = 0
-        while self._has_next:
-            value = self._next
-            self._shift()
-            yield value, self._Item(index, self._has_next)
-            index += 1
 
 
 ############# API END
@@ -1501,92 +1420,3 @@ class Printer(ast.NodeVisitor):
         self.src.write('or')
 
 
-def all_files_by_mask(mask):
-    for root, dirs, files in os.walk('.'):
-        for basename in files:
-            if fnmatch.fnmatch(basename, mask):
-                filename = os.path.join(root, basename)
-                yield filename
-
-
-def render_templates(*templates, **kw):
-    loader = kw['loader']
-    for template_name in templates:
-        result = loader.get_template(template_name).render()
-        if result:
-            open(template_name[:-4]+'html', 'w').write(result)
-
-
-def iter_changed(interval=1):
-    mtimes = {}
-    while 1:
-        for filename in all_files_by_mask('*.mint'):
-            try:
-                mtime = os.stat(filename).st_mtime
-            except OSError:
-                continue
-            old_time = mtimes.get(filename)
-            if old_time is None:
-                mtimes[filename] = mtime
-                continue
-            elif mtime > old_time:
-                mtimes[filename] = mtime
-                yield filename
-        time.sleep(interval)
-
-
-if __name__ == '__main__':
-    import datetime
-    from optparse import OptionParser
-    parser = OptionParser()
-    parser.add_option('-c', '--code', dest='code', action='store_true',
-                      default=False,
-                      help='Show only python code of compiled template.')
-    parser.add_option('-t', '--tokenize', dest='tokenize', action='store_true',
-                      default=False,
-                      help='Show tokens stream of template.')
-    parser.add_option('-r', '--repeat', dest='repeat',
-                      default=0, metavar='N', type='int',
-                      help='Try to render template N times and display average time result.')
-    parser.add_option('-p', '--pprint', dest='pprint', action='store_true',
-                      default=False,
-                      help='Turn pretty print on.')
-    parser.add_option('-m', '--monitor', dest='monitor', action='store_true',
-                      default=False,
-                      help='Monitor current directory and subdirectories for changes in mint files. '
-                           'And render corresponding html files.')
-    (options, args) = parser.parse_args()
-    loader = Loader('.', pprint=options.pprint)
-    if len(args) > 0:
-        template_name = args[0]
-        template = loader.get_template(template_name)
-        if options.code:
-            printer = Printer()
-            printer.visit(template.tree())
-            print printer.src.getvalue()
-        elif options.tokenize:
-            for t in tokenizer(StringIO(template.source)):
-                print t
-        else:
-            print template.render()
-        if options.repeat > 0:
-            now = datetime.datetime.now
-            results = []
-            for i in range(options.repeat):
-                start = now()
-                template.render()
-                results.append(now() - start)
-            print 'Total time (%d repeats): ' % options.repeat, reduce(lambda a,b: a+b, results)
-            print 'Average:                 ', reduce(lambda a,b: a+b, results)/len(results)
-    elif options.monitor:
-        curdir = os.path.abspath(os.getcwd())
-        try:
-            render_templates(*all_files_by_mask('*.mint'), loader=loader)
-            print 'Monitoring for file changes...'
-            for changed_file in iter_changed():
-                print 'Changes in file: ', changed_file, datetime.datetime.now().strftime('%H:%M:%S')
-                render_templates(changed_file, loader=loader)
-        except KeyboardInterrupt:
-            pass
-    else:
-        print 'Try --help'
