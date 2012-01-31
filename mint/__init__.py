@@ -5,4 +5,4 @@ mint - small, simple template engine.
 '''
 
 
-from .template import Loader, Template
+#from .template import Loader, Template
