@@ -27,3 +27,14 @@ class _TokensCollection(object):
 
 
 token = _TokensCollection()
+
+
+class TokenValue(tuple):
+
+    def __new__(cls, tok, value, line, pos):
+        self = tuple.__new__(cls, (tok, value, line, pos))
+        self.token = tok
+        self.value = value
+        self.line = line
+        self.pos = pos
+        return self

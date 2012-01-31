@@ -7,7 +7,7 @@ from StringIO import StringIO
 from mint import lexer
 
 
-class TokensCollectionTest(unittest.TestCase):
+class TokensTest(unittest.TestCase):
 
     def test_valid_token(self):
         lexer.token.indent
@@ -21,6 +21,17 @@ class TokensCollectionTest(unittest.TestCase):
 
     def test_equality(self):
         self.assertTrue(lexer.token.indent is lexer.token.indent)
+
+    def test_value(self):
+        value = lexer.TokenValue(lexer.token.indent, ' ', 1, 0)
+        self.assertEqual(value.token, lexer.token.indent)
+        self.assertEqual(value[0], lexer.token.indent)
+        self.assertEqual(value.value, ' ')
+        self.assertEqual(value[1], ' ')
+        self.assertEqual(value.line, 1)
+        self.assertEqual(value[2], 1)
+        self.assertEqual(value.pos, 0)
+        self.assertEqual(value[3], 0)
 
 
 @unittest.skip('Broken lexer')
