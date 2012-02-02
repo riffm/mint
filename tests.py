@@ -34,6 +34,61 @@ class TokensTest(unittest.TestCase):
         self.assertEqual(value[3], 0)
 
 
+class LexerTest(unittest.TestCase):
+
+    src = u'съешь же ещё этих мягких \n'+\
+          u'французских булок, \n'+\
+          u'да выпей чаю\n'
+
+    def test_next(self):
+        lex = lexer.Lexer(self.src)
+        self.assertEqual([lex.next() for i in range(len(self.src))],
+                         list(self.src))
+        self.assertEqual(lex.line_no, 1)
+        self.assertEqual(lex.lines, [('', 0),
+                                     (u'съешь же ещё этих мягких \n', 26),
+                                     (u'французских булок, \n', 46),
+                                     (u'да выпей чаю\n', 59)])
+
+    def test_backup(self):
+        lex = lexer.Lexer(self.src)
+        lex.next()
+        lex.backup()
+        self.assertEqual(lex.pos, 0)
+
+    def test_backup_at_line_beginging(self):
+        lex = lexer.Lexer(u'\n\nb')
+        lex.next()
+        lex.next()
+        lex.next()
+        lex.backup()
+        self.assertEqual(lex.pos, 2)
+        self.assertEqual(lex.lines, [('', 0), ('\n', 1)])
+        lex.backup()
+        self.assertEqual(lex.pos, 1)
+        self.assertEqual(lex.lines, [('', 0) ])
+        lex.backup()
+        self.assertEqual(lex.pos, 0)
+        self.assertEqual(lex.lines, [('', 0) ])
+
+    def test_ignore(self):
+        lex = lexer.Lexer(u'\n\nb')
+        lex.next()
+        lex.ignore()
+        self.assertEqual(lex.start, 1)
+        self.assertEqual(lex.pos, 1)
+        self.assertEqual(lex.line_no, 2)
+        self.assertEqual(lex.line_pos, 0)
+        self.assertEqual(lex.lines, [('', 0), ('\n', 1)])
+        lex.next()
+        lex.ignore()
+        self.assertEqual(lex.start, 2)
+        self.assertEqual(lex.pos, 2)
+        self.assertEqual(lex.line_no, 3)
+        self.assertEqual(lex.line_pos, 0)
+        self.assertEqual(lex.lines, [('', 0), ('\n', 1), ('\n', 2)])
+
+
 @unittest.skip('Broken lexer')
 class TagsAndText(unittest.TestCase):
 
