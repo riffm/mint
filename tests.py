@@ -88,6 +88,12 @@ class LexerTest(unittest.TestCase):
         self.assertEqual(lex.line_pos, 0)
         self.assertEqual(lex.lines, [('', 0), ('\n', 1), ('\n', 2)])
 
+    def text_peek(self):
+        lex = lexer.Lexer(u'ab')
+        self.assertEqual(lex.peek(), 'a')
+        lex.next()
+        self.assertEqual(lex.peek(), 'b')
+
 
 @unittest.skip('Broken lexer')
 class TagsAndText(unittest.TestCase):

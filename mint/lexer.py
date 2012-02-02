@@ -95,6 +95,11 @@ class Lexer(object):
         self.line_no = len(self.lines)
         self.line_pos = pos - self.lines[-1][1]
 
+    def peek(self):
+        char = self.next()
+        self.backup()
+        return char
+
     def __iter__(self):
         state = self.initial_state
         while state is not None:
