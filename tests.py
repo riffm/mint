@@ -125,15 +125,25 @@ class LexerTest(unittest.TestCase):
         lex = lexer.Lexer(u' \n')
         self.assertEqual(list(lex), [(token.indent, 1, 1, 0),
                                      (token.text, '\n', 1, 1),
+                                     (token.unindent, 1, 2, 0),
                                      (token.eof, '', 2, 0)])
         self.assertEqual(lex.indent, ' ')
-        self.assertEqual(lex.indent_level, 1)
+        self.assertEqual(lex.indent_level, 0)
 
     def test_same_level_indention(self):
         lex = lexer.Lexer(u' \n \n')
         self.assertEqual(list(lex), [(token.indent, 1, 1, 0),
                                      (token.text, '\n', 1, 1),
                                      (token.text, '\n', 2, 1),
+                                     (token.unindent, 1, 3, 0),
+                                     (token.eof, '', 3, 0)])
+
+    def test_indent_unindent(self):
+        lex = lexer.Lexer(u' \n\n')
+        self.assertEqual(list(lex), [(token.indent, 1, 1, 0),
+                                     (token.text, '\n', 1, 1),
+                                     (token.unindent, 1, 2, 0),
+                                     (token.text, '\n', 2, 0),
                                      (token.eof, '', 3, 0)])
 
 

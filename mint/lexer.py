@@ -102,7 +102,7 @@ class Lexer(object):
             self.lines.pop()
 
     def emit(self, tok, value=None):
-        if tok is not token.eof:
+        if tok is not token.eof and value is None:
             assert self.pos > self.start
         self._tokens.appendleft(
                 TokenValue(tok,
@@ -149,9 +149,6 @@ class Lexer(object):
 
     def indent_state(self):
         char = self.peek()
-        if char == '':
-            self.emit(token.eof)
-            return None
         if char == ' ':
             self.accept_run(' ')
             value = self.source[self.start:self.pos]
@@ -172,6 +169,12 @@ class Lexer(object):
                 else:
                     self.ignore()
                 self.indent_level += delta
+        elif self.indent_level:
+            self.emit(token.unindent, self.indent_level)
+            self.indent_level = 0
+        if char == '':
+            self.emit(token.eof)
+            return None
         return self.line_state
 
     initial_state = indent_state
