@@ -5,6 +5,7 @@ import types
 from StringIO import StringIO
 
 from mint import lexer
+from mint.lexer import token
 
 
 class TokensTest(unittest.TestCase):
@@ -42,9 +43,10 @@ class LexerTest(unittest.TestCase):
 
     def test_next(self):
         lex = lexer.Lexer(self.src)
-        self.assertEqual([lex.next() for i in range(len(self.src))],
-                         list(self.src))
+        self.assertEqual([lex.next() for i in range(len(self.src)+1)],
+                         list(self.src)+[''])
         self.assertEqual(lex.line_no, 1)
+        self.assertEqual(lex.line_pos, 0)
         self.assertEqual(lex.lines, [('', 0),
                                      (u'съешь же ещё этих мягких \n', 26),
                                      (u'французских булок, \n', 46),
@@ -55,6 +57,7 @@ class LexerTest(unittest.TestCase):
         lex.next()
         lex.backup()
         self.assertEqual(lex.pos, 0)
+        self.assertEqual(lex.last_char, '')
 
     def test_backup_at_line_beginging(self):
         lex = lexer.Lexer(u'\n\nb')
@@ -64,12 +67,15 @@ class LexerTest(unittest.TestCase):
         lex.backup()
         self.assertEqual(lex.pos, 2)
         self.assertEqual(lex.lines, [('', 0), ('\n', 1)])
+        self.assertEqual(lex.last_char, '\n')
         lex.backup()
         self.assertEqual(lex.pos, 1)
         self.assertEqual(lex.lines, [('', 0) ])
+        self.assertEqual(lex.last_char, '\n')
         lex.backup()
         self.assertEqual(lex.pos, 0)
-        self.assertEqual(lex.lines, [('', 0) ])
+        self.assertEqual(lex.lines, [('', 0)])
+        self.assertEqual(lex.last_char, '')
 
     def test_ignore(self):
         lex = lexer.Lexer(u'\n\nb')
@@ -79,20 +85,56 @@ class LexerTest(unittest.TestCase):
         self.assertEqual(lex.pos, 1)
         self.assertEqual(lex.line_no, 2)
         self.assertEqual(lex.line_pos, 0)
-        self.assertEqual(lex.lines, [('', 0), ('\n', 1)])
+        self.assertEqual(lex.lines, [('', 0)])
         lex.next()
         lex.ignore()
         self.assertEqual(lex.start, 2)
         self.assertEqual(lex.pos, 2)
         self.assertEqual(lex.line_no, 3)
         self.assertEqual(lex.line_pos, 0)
-        self.assertEqual(lex.lines, [('', 0), ('\n', 1), ('\n', 2)])
+        self.assertEqual(lex.lines, [('', 0), ('\n', 1)])
 
-    def text_peek(self):
+    def test_peek(self):
         lex = lexer.Lexer(u'ab')
         self.assertEqual(lex.peek(), 'a')
         lex.next()
         self.assertEqual(lex.peek(), 'b')
+
+    def test_accept(self):
+        lex = lexer.Lexer(u'ab')
+        self.assertTrue(lex.accept('a'))
+        self.assertEqual(lex.pos, 1)
+        self.assertEqual(lex.start, 0)
+        self.assertTrue(lex.accept('b'))
+        self.assertEqual(lex.pos, 2)
+        self.assertEqual(lex.start, 0)
+
+    def test_accept_run_of_one_char(self):
+        lex = lexer.Lexer(u'ab')
+        lex.accept_run('a')
+        self.assertEqual(lex.pos, 1)
+        self.assertEqual(lex.start, 0)
+
+    def test_accept_run_of_multiple_chars(self):
+        lex = lexer.Lexer(u'ab')
+        lex.accept_run('abc')
+        self.assertEqual(lex.pos, 2)
+        self.assertEqual(lex.start, 0)
+
+    def test_indention(self):
+        lex = lexer.Lexer(u' \n')
+        self.assertEqual(list(lex), [(token.indent, 1, 1, 0),
+                                     (token.text, '\n', 1, 1),
+                                     (token.eof, '', 2, 0)])
+        self.assertEqual(lex.indent, ' ')
+        self.assertEqual(lex.indent_level, 1)
+
+    def test_same_level_indention(self):
+        lex = lexer.Lexer(u' \n \n')
+        self.assertEqual(list(lex), [(token.indent, 1, 1, 0),
+                                     (token.text, '\n', 1, 1),
+                                     (token.text, '\n', 2, 1),
+                                     (token.eof, '', 3, 0)])
 
 
 @unittest.skip('Broken lexer')
