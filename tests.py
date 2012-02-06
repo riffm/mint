@@ -146,6 +146,60 @@ class LexerTest(unittest.TestCase):
                                      (token.text, '\n', 2, 0),
                                      (token.eof, '', 3, 0)])
 
+    def test_indent_pyramid_with_one_space(self):
+        lex = lexer.Lexer(u' \n  \n \n')
+        self.assertEqual(list(lex), [(token.indent, 1, 1, 0),
+                                     (token.text, '\n', 1, 1),
+                                     (token.indent, 1, 2, 0),
+                                     (token.text, '\n', 2, 2),
+                                     (token.unindent, 1, 3, 0),
+                                     (token.text, '\n', 3, 1),
+                                     (token.unindent, 1, 4, 0),
+                                     (token.eof, '', 4, 0)])
+
+    def test_indent_pyramid_with_two_space(self):
+        lex = lexer.Lexer(u'  \n    \n  \n')
+        self.assertEqual(list(lex), [(token.indent, 1, 1, 0),
+                                     (token.text, '\n', 1, 2),
+                                     (token.indent, 1, 2, 0),
+                                     (token.text, '\n', 2, 4),
+                                     (token.unindent, 1, 3, 0),
+                                     (token.text, '\n', 3, 2),
+                                     (token.unindent, 1, 4, 0),
+                                     (token.eof, '', 4, 0)])
+
+    def test_wrong_indent(self):
+        lex = lexer.Lexer(u' \n   \n')
+        with self.assertRaises(lexer.SyntaxError):
+            list(lex)
+
+    def test_text_state(self):
+        lex = lexer.Lexer(u'abcd')
+        self.assertEqual(list(lex), [(token.text, 'abcd', 1, 0),
+                                     (token.eof, '', 1, 5)])
+
+    def test_multiline_text(self):
+        lex = lexer.Lexer(u'abc\ndef\n')
+        self.assertEqual(list(lex), [(token.text, 'abc\n', 1, 0),
+                                     (token.text, 'def\n', 2, 0),
+                                     (token.eof, '', 3, 0)])
+
+    def test_multiline_text_with_indent(self):
+        lex = lexer.Lexer(u'ab\n  cd\nef\n')
+        self.assertEqual(list(lex), [(token.text, 'ab\n', 1, 0),
+                                     (token.indent, 1, 2, 0),
+                                     (token.text, 'cd\n', 2, 2),
+                                     (token.unindent, 1, 3, 0),
+                                     (token.text, 'ef\n', 3, 0),
+                                     (token.eof, '', 4, 0)])
+
+    def test_tag_name(self):
+        lex = lexer.Lexer(u'@tag\n')
+        self.assertEqual(list(lex), [(token.tag_name, 'tag', 1, 1),
+                                     (token.eof, '', 2, 0)])
+
+
+
 
 @unittest.skip('Broken lexer')
 class TagsAndText(unittest.TestCase):

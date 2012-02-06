@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import string
 from collections import deque
 
 
@@ -12,8 +13,7 @@ class _TokensCollection(object):
     _tokens = (
         'indent',
         'unindent',
-        'tag_block',
-        'inline_tag',
+        'tag_name',
         'text',
         'keyword',
         'macro_call',
@@ -103,7 +103,8 @@ class Lexer(object):
 
     def emit(self, tok, value=None):
         if tok is not token.eof and value is None:
-            assert self.pos > self.start
+            if self.pos <= self.start:
+                return
         self._tokens.appendleft(
                 TokenValue(tok,
                            value or self.source[self.start:self.pos],
@@ -149,6 +150,7 @@ class Lexer(object):
 
     def indent_state(self):
         char = self.peek()
+        # consider indent level
         if char == ' ':
             self.accept_run(' ')
             value = self.source[self.start:self.pos]
@@ -172,20 +174,44 @@ class Lexer(object):
         elif self.indent_level:
             self.emit(token.unindent, self.indent_level)
             self.indent_level = 0
+        # check next state depending on char
         if char == '':
             self.emit(token.eof)
             return None
-        return self.line_state
+        return self.text_state
 
     initial_state = indent_state
 
-    def line_state(self):
+    def text_state(self):
         char = self.next()
-        if char == '\n':
+        while char:
+            if char == '\n':
+                self.emit(token.text)
+                return self.indent_state
+            elif char == self._tag_start:
+                self.backup()
+                self.emit(token.text)
+                self.next()
+                self.ignore()
+                return self.tag_state
+            char = self.next()
+        if self.start < self.size:
             self.emit(token.text)
-            return self.indent_state
-        if char == self._tag_start:
+        self.emit(token.eof)
+        return None
+
+    def tag_state(self):
+        valid_ns_chars = string.letters + string.digits
+        valid_chars = valid_ns_chars + ':-_'
+        self.accept_run(valid_chars)
+        self.emit(token.tag_name)
+        char = self.next()
+        if char == '.':
             self.ignore()
-            return self.tag_state
-        self.backup()
-        return self.text_state
+            return self.tag_attr_state
+        elif char in (' ', '\n'):
+            self.ignore()
+            return self.text_state
+        elif char == '':
+            self.emit(token.eof)
+        self.error('Incorrect tag syntax')
