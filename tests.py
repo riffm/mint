@@ -193,6 +193,25 @@ class LexerTest(unittest.TestCase):
                                      (token.text, 'ef\n', 3, 0),
                                      (token.eof, '', 4, 0)])
 
+    def test_escaped_tag(self):
+        lex = lexer.Lexer(r'\@tag')
+        self.assertEqual(list(lex), [(token.text, '@tag', 1, 1),
+                                     # XXX line pos
+                                     (token.eof, '', 1, 6)])
+
+    def test_escaped_backslash(self):
+        lex = lexer.Lexer(r'\\')
+        self.assertEqual(list(lex), [(token.text, '\\', 1, 1),
+                                     # XXX line pos
+                                     (token.eof, '', 1, 3)])
+
+    def test_escaped_backslash_and_tag(self):
+        lex = lexer.Lexer(r'\\\@')
+        self.assertEqual(list(lex), [(token.text, '\\', 1, 1),
+                                     (token.text, '@', 1, 3),
+                                     # XXX line pos
+                                     (token.eof, '', 1, 5)])
+
     def test_tag_name(self):
         lex = lexer.Lexer(u'@tag\n')
         self.assertEqual(list(lex), [(token.tag_name, 'tag', 1, 1),

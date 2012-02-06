@@ -188,6 +188,14 @@ class Lexer(object):
             if char == '\n':
                 self.emit(token.text)
                 return self.indent_state
+            elif char == '\\':
+                next_char = self.peek()
+                if next_char in (self._tag_start, '\\'):
+                    self.backup()
+                    self.emit(token.text)
+                    self.next()
+                    self.ignore()
+                    self.next()
             elif char == self._tag_start:
                 self.backup()
                 self.emit(token.text)
